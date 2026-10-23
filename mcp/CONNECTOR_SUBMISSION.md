@@ -56,9 +56,12 @@ Use a dedicated account with Sandbox on and two-factor off, so reviewers aren't 
 ## Safety Annotations
 
 Every tool returned by `tools/list` has a `title` (on the tool and in `annotations`) plus
-`readOnlyHint`, `destructiveHint` and `openWorldHint`, derived from the same risk
-classification the agent uses (`routes/mcp.py`, `_to_mcp_tool`). The directory requires a
-title and a read-only/destructive hint on every tool; `tests/test_mcp_tool_titles.py` checks it.
+`readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`, each explicitly true
+or false, derived from the same risk classification the agent uses (`routes/mcp.py`,
+`_get_tool_annotations`). Any tool that asks for confirmation in chat (medium risk or above,
+plus the `manage_*` tools that can stop or terminate) is `destructiveHint: true`; reads are
+read-only and idempotent; writes that set a value (`put_`, `set_`, `tag_`) are idempotent.
+`tests/test_mcp_tool_titles.py` checks every hint on every tool.
 
 Risky calls also need approval before they run (see "Approvals and connected tools" in
 `mcp/README.md`).

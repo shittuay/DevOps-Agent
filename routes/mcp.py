@@ -422,42 +422,69 @@ def _get_all_tools():
         return _tool_cache, _tool_map
 
 
+# Read-only by name: list, get, describe, show, search, check, validate, health.
+_READ_ONLY_PREFIXES = (
+    'list_', 'get_', 'describe_', 'show_', 'search_', 'check_',
+    'validate_', 'view_', 'fetch_', 'query_', 'count_', 'find_', 'top_',
+)
+_READ_ONLY_SEGMENTS = ('_list', '_status', '_info', '_health', '_logs', '_history', '_usage')
+# "<provider>_get_<noun>" and friends (docker_get_stats, pagerduty_get_incident).
+_READ_ONLY_SECOND_WORDS = ('get', 'describe', 'search', 'show')
+# Reads whose names the patterns above can't recognise.
+_READ_ONLY_NAMES = frozenset({
+    'aws_api_read', 'azure_api_read', 'gcp_api_read', 'k8s_api_read',
+    'run_smoke_test', 'audit_security_group_rules',
+    'terraform_show', 'terraform_validate', 'terraform_graph', 'terraform_providers',
+    'ansible_doc', 'ansible_ping', 'ansible_facts', 'ansible_config_dump',
+    'ansible_playbook_syntax_check',
+    'git_count_objects', 'git_get_remote_url', 'git_log_file', 'git_reflog',
+    'git_search_commits', 'git_shortlog',
+})
+# Writes that leave the same end state however often they run (they set a value).
+_IDEMPOTENT_WRITE_PREFIXES = ('put_', 'set_', 'tag_', 'untag_', 'add_tags')
+
+
 def _get_tool_annotations(tool_name: str) -> Dict[str, Any]:
-    """Return MCP safety annotations for a tool based on its risk classification."""
+    """MCP hints for a tool, every one set explicitly to true or false.
+
+    Directory reviews (Claude and ChatGPT) check the hints against what each tool
+    does and reject a connector over a mismatch or an unset hint. Until 2026-10-23
+    only high-risk tools were marked destructive, so ~200 medium-risk tools that
+    overwrite or remove settings (put_iam_inline_policy, revoke_security_group_ingress,
+    update_cloudformation_stack...) said destructiveHint false, and no tool set
+    idempotentHint.
+
+    - destructive: anything safety.py rates medium or above (it asks for
+      confirmation because it changes or removes something existing), plus the
+      action-aware manage_* tools, which can stop or terminate.
+    - read-only: a read by name, and rated low risk.
+    - idempotent: reads, and writes that set a value (put_/set_/tag_).
+    - openWorld: every tool reaches the user's cloud or an external service.
+    """
     from src.agent.safety import SafetyValidator
 
     name = tool_name.lower()
-
-    # Read-only tools: list, get, describe, show, search, check, validate, health
-    _READ_ONLY_PREFIXES = (
-        'list_', 'get_', 'describe_', 'show_', 'search_', 'check_',
-        'validate_', 'view_', 'fetch_', 'query_', 'count_',
-    )
-    _READ_ONLY_SUBSTRINGS = ('_list', '_status', '_info', '_health', '_logs', '_history', '_usage')
-
+    words = name.split('_')
     # Match whole name segments: a plain substring test made create_listener read-only.
     padded = name + '_'
-    is_read_only = (
-        any(name.startswith(p) for p in _READ_ONLY_PREFIXES)
-        or any(s + '_' in padded for s in _READ_ONLY_SUBSTRINGS)
+    named_read = (
+        name in _READ_ONLY_NAMES
+        or name.startswith(_READ_ONLY_PREFIXES)
+        or any(s + '_' in padded for s in _READ_ONLY_SEGMENTS)
+        or (len(words) > 2 and words[1] in _READ_ONLY_SECOND_WORDS)
     )
 
-    is_destructive = (
-        tool_name in SafetyValidator.validate_tool_call.__code__.co_consts
-        or SafetyValidator._matches_high_risk_pattern(tool_name)
-    )
+    risk = SafetyValidator().validate_tool_call(tool_name, {}).risk_level
+    destructive = risk in ('medium', 'high', 'critical') or name.startswith('manage_')
+    read_only = named_read and not destructive
+    idempotent = read_only or name.startswith(_IDEMPOTENT_WRITE_PREFIXES)
 
-    # Use the actual sets from safety.py for accurate classification
-    sv = SafetyValidator()
-    result = sv.validate_tool_call(tool_name, {})
-    is_destructive = result.risk_level in ('high', 'critical')
-    is_medium = result.risk_level == 'medium'
-
-    if is_read_only and not is_destructive and not is_medium:
-        return {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True}
-    if is_destructive:
-        return {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True}
-    return {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True}
+    return {
+        "readOnlyHint": read_only,
+        "destructiveHint": destructive,
+        "idempotentHint": idempotent,
+        "openWorldHint": True,
+    }
 
 
 _TITLE_WORDS = {
@@ -690,7 +717,8 @@ def _handle_tools_list(req_id: Any, params: Dict, user_id: int) -> Dict:
         "description": "Returns server status, protocol version, and tool count. No cloud credentials required.",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
         "annotations": {"title": "DevOps Agent Health", "readOnlyHint": True,
-                        "destructiveHint": False, "openWorldHint": False},
+                        "destructiveHint": False, "idempotentHint": True,
+                        "openWorldHint": False},
     }
     return _ok(req_id, {
         "tools": [health_tool] + [_to_mcp_tool(t) for t in tools],
