@@ -2263,10 +2263,12 @@ A full read-only review found five issues the owner asked to fix first (CLAUDE_R
   `admin` everything. MCP API keys need `execute`. `?api_key=` is refused. Guard:
   `tests/test_api_key_scopes.py`.
 
+2026-10-25 scheduled review fixed `_is_safe_redirect` (rejects a scheme with no authority such as `http:/evil.com`, backslashes and control characters) and `terraform_apply`'s dash-leading `plan_file` (`tests/test_review_2026_10_25.py`).
+
 Still open from that review (not fixed): org invitations join on GET and aren't bound to an email; TOTP
-setup marks the email verified; `_is_safe_redirect` accepts `http:/evil.com`; login messages reveal which
+setup marks the email verified; login messages reveal which
 accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
-`terraform_apply(plan_file='-destroy')`; `query_bigquery` unclassified; `*_api_read` can read secret
+`query_bigquery` unclassified; `*_api_read` can read secret
 values; stored XSS in Settings > Learning and the map's `esc()`; `/api/run-migration` is login-only.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)

@@ -103,10 +103,12 @@ def _dispatch_password_reset_email(user_id: int) -> None:
 
 def _is_safe_redirect(target: str) -> bool:
     """Reject absolute URLs and protocol-relative URLs to prevent open redirects."""
-    if not target:
+    if not target or '\\' in target or any(ord(c) < 32 for c in target):
         return False
     ref_url = urlparse(request.host_url)
     test_url = urlparse(target)
+    if test_url.scheme and not test_url.netloc:
+        return False
     if test_url.scheme and test_url.scheme not in ('http', 'https'):
         return False
     if test_url.netloc and test_url.netloc != ref_url.netloc:
