@@ -300,12 +300,12 @@ def _run_weekly_digest(db):
         return
     week_start = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    from models import User, UserCloudCredential, CostOptimization, SecurityFinding, Alert
+    from models import User, UserCloudCredential, CostOptimization, SecurityFinding, ApprovalRequest
     from services.email_service import EmailService
-    from services.health_score import calculate_health_score, get_grade_label
 
     email_svc = EmailService()
     week_ago = utcnow() - timedelta(days=7)
+    base_url = __import__('os').environ.get('BASE_URL', 'https://devopsagent.io')
 
     users = (_users_with_credentials_query(db)
              .filter(User.email != None)  # noqa: E711
@@ -317,35 +317,41 @@ def _run_weekly_digest(db):
     sent = skipped = 0
     for user in users:
         try:
-            # ── Per-user 7-day stats ───────────────────────────────────
-            savings_identified = db.session.query(
+            has_aws = UserCloudCredential.query.filter_by(
+                user_id=user.id, cloud_provider='aws', is_active=True).first() is not None
+            checked = user.security_checked_at is not None and user.security_checked_at >= week_ago
+            serious = SecurityFinding.query.filter(
+                SecurityFinding.user_id == user.id, SecurityFinding.status == 'open',
+                SecurityFinding.severity.in_(('critical', 'high')),
+            ).count() if checked else None
+
+            new_recs = CostOptimization.query.filter(
+                CostOptimization.user_id == user.id, CostOptimization.status == 'pending',
+                CostOptimization.created_at >= week_ago,
+            )
+            rec_count = new_recs.count()
+            rec_savings = db.session.query(
                 db.func.sum(CostOptimization.potential_monthly_savings)
             ).filter(
-                CostOptimization.user_id == user.id,
-                CostOptimization.created_at >= week_ago
+                CostOptimization.user_id == user.id, CostOptimization.status == 'pending',
+                CostOptimization.created_at >= week_ago,
             ).scalar() or 0.0
 
-            critical_sec = SecurityFinding.query.filter_by(
-                user_id=user.id, status='open', severity='critical'
-            ).count()
-
-            health = calculate_health_score(user.id)
-            grade_label = get_grade_label(health['grade'])
+            waiting = ApprovalRequest.query.filter_by(requester_id=user.id, status='pending').count()
 
             from services.drip_email_service import generate_unsubscribe_token
             html = _build_digest_html(
-                unsubscribe_url=(f"{__import__('os').environ.get('BASE_URL', 'https://devopsagent.io')}"
-                                 f"/email/unsubscribe?user_id={user.id}&token={generate_unsubscribe_token(user.id)}"),
+                unsubscribe_url=(f"{base_url}/email/unsubscribe?user_id={user.id}"
+                                 f"&token={generate_unsubscribe_token(user.id)}"),
                 username=user.username or user.email.split('@')[0],
-                grade=health['grade'],
-                grade_label=grade_label,
-                score=health['score'],
-                savings_identified=savings_identified,
-                critical_sec=critical_sec,
+                serious_findings=serious,
+                rec_count=rec_count,
+                rec_savings=rec_savings,
+                waiting_approvals=waiting,
+                security_available=has_aws,
             )
 
-            subject = f"Your DevOps Agent weekly digest — Infrastructure health: {health['grade']} ({grade_label})"
-            ok = email_svc.send_email(user.email, subject, html)
+            ok = email_svc.send_email(user.email, "Your DevOps Agent weekly summary", html)
             if ok:
                 user.last_digest_sent_at = now
                 db.session.commit()
@@ -360,19 +366,48 @@ def _run_weekly_digest(db):
     logger.info(f"Weekly digest: sent={sent}, skipped={skipped}")
 
 
-def _build_digest_html(username, grade, grade_label, score,
-                       savings_identified, critical_sec, unsubscribe_url='') -> str:
-    """Build the weekly digest HTML email body."""
-    grade_color = {
-        'A': '#4ade80', 'B': '#60a5fa',
-        'C': '#fbbf24', 'D': '#fb923c', 'F': '#f87171'
-    }.get(grade, '#60a5fa')
+def _build_digest_html(username, serious_findings, rec_count, rec_savings,
+                       waiting_approvals, unsubscribe_url='', security_available=True) -> str:
+    """Build the weekly summary email.
 
-    savings_text = f"${savings_identified:.0f}" if savings_identified >= 1 else "$0"
-    sec_text = f"{critical_sec} critical finding{'s' if critical_sec != 1 else ''}" if critical_sec > 0 else "No critical findings"
-    sec_color = '#f87171' if critical_sec > 0 else '#4ade80'
-
+    Only facts the app has: findings from a security check run in the last 7 days
+    (None = no check, which is said plainly rather than shown as zero), cost
+    recommendations found this week with their estimated savings, and the user's
+    requests still waiting for confirmation. There is no overall grade: a score
+    computed from whatever happens to be stored read as an assessment of the account.
+    """
     base_url = __import__('os').environ.get('BASE_URL', 'https://devopsagent.io')
+
+    if not security_available:
+        sec_text, sec_color = 'Available for AWS accounts only', '#94a3b8'
+    elif serious_findings is None:
+        sec_text, sec_color = 'Not run this week. Run the security checks on your Dashboard.', '#fbbf24'
+    elif serious_findings:
+        sec_text = f"{serious_findings} critical or high finding{'s' if serious_findings != 1 else ''} open"
+        sec_color = '#f87171'
+    else:
+        sec_text, sec_color = 'No critical or high findings open', '#4ade80'
+
+    if rec_count:
+        cost_text = f"{rec_count} new recommendation{'s' if rec_count != 1 else ''}"
+        if rec_savings >= 1:
+            cost_text += f", about ${rec_savings:,.0f}/mo (estimate)"
+    else:
+        cost_text = 'No new recommendations'
+
+    if waiting_approvals:
+        appr_text = f"{waiting_approvals} waiting for your confirmation"
+        appr_color = '#fbbf24'
+    else:
+        appr_text, appr_color = 'Nothing waiting', '#94a3b8'
+
+    def row(label, value, color):
+        return (
+            '<tr><td style="padding:14px 0;border-top:1px solid rgba(255,255,255,0.06)">'
+            f'<div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">{label}</div>'
+            f'<div style="font-size:15px;font-weight:600;color:{color};margin-top:4px">{value}</div>'
+            '</td></tr>'
+        )
 
     return f"""<!DOCTYPE html>
 <html>
@@ -380,57 +415,29 @@ def _build_digest_html(username, grade, grade_label, score,
 <body style="margin:0;padding:0;background:#0f1117;font-family:'Segoe UI',Arial,sans-serif;color:#e2e8f0">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f1117;padding:40px 16px">
     <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
-
-        <!-- Header -->
-        <tr><td style="background:linear-gradient(135deg,#1a1d2e,#161925);border-radius:16px 16px 0 0;padding:32px 40px;border:1px solid rgba(255,255,255,0.08);border-bottom:none">
-          <table width="100%"><tr>
-            <td>
-              <div style="background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-family:'Courier New',monospace;font-weight:700;font-size:14px;padding:6px 12px;border-radius:8px;display:inline-block">&gt;_</div>
-              <span style="font-size:18px;font-weight:800;color:#f1f5f9;margin-left:12px;vertical-align:middle">DevOps Agent</span>
-            </td>
-            <td align="right" style="color:#64748b;font-size:12px;font-family:'Courier New',monospace">WEEKLY DIGEST</td>
-          </tr></table>
-          <h1 style="margin:24px 0 8px;font-size:22px;font-weight:800;color:#f1f5f9">Your infrastructure this week</h1>
-          <p style="margin:0;color:#94a3b8;font-size:14px">Hi {username} — here's what your DevOps Agent found and fixed.</p>
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:linear-gradient(135deg,#1a1d2e,#161925);border:1px solid rgba(255,255,255,0.08);border-radius:16px">
+        <tr><td style="padding:32px 40px 8px">
+          <div style="background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-family:'Courier New',monospace;font-weight:700;font-size:14px;padding:6px 12px;border-radius:8px;display:inline-block">&gt;_</div>
+          <span style="font-size:18px;font-weight:800;color:#f1f5f9;margin-left:12px;vertical-align:middle">DevOps Agent</span>
+          <h1 style="margin:24px 0 4px;font-size:22px;font-weight:800;color:#f1f5f9">Your weekly summary</h1>
+          <p style="margin:0;color:#94a3b8;font-size:14px">Hi {username}, here is your account over the last 7 days.</p>
         </td></tr>
-
-        <!-- Health score banner -->
-        <tr><td style="background:linear-gradient(135deg,#1a1d2e,#161925);padding:0 40px 32px;border:1px solid rgba(255,255,255,0.08);border-top:none;border-bottom:none">
-          <table width="100%" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="text-align:center;padding:0 16px 0 0;border-right:1px solid rgba(255,255,255,0.08)">
-                <div style="font-size:64px;font-weight:800;color:{grade_color};line-height:1">{grade}</div>
-                <div style="font-size:13px;color:#94a3b8;margin-top:4px">Infrastructure Health</div>
-                <div style="font-size:11px;color:#64748b;font-family:'Courier New',monospace;margin-top:2px">{score}/100 — {grade_label}</div>
-              </td>
-              <td style="padding:0 0 0 24px">
-                <table cellpadding="0" cellspacing="0" width="100%">
-                  <tr><td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-                    <span style="color:#94a3b8;font-size:13px">Savings identified</span>
-                    <span style="float:right;font-weight:700;color:#fbbf24;font-size:13px">{savings_text}/mo</span>
-                  </td></tr>
-                  <tr><td style="padding:8px 0">
-                    <span style="color:#94a3b8;font-size:13px">Security status</span>
-                    <span style="float:right;font-weight:700;color:{sec_color};font-size:13px">{sec_text}</span>
-                  </td></tr>
-                </table>
-              </td>
-            </tr>
+        <tr><td style="padding:8px 40px 0">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            {row('Security checks', sec_text, sec_color)}
+            {row('Cost recommendations', cost_text, '#e2e8f0')}
+            {row('Your requests', appr_text, appr_color)}
           </table>
         </td></tr>
-
-        <!-- CTA -->
-        <tr><td style="background:linear-gradient(135deg,#1a1d2e,#161925);padding:0 40px 32px;border:1px solid rgba(255,255,255,0.08);border-top:none;border-radius:0 0 16px 16px">
-          <table width="100%"><tr><td align="center">
-            <a href="{base_url}/dashboard" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">View Dashboard</a>
-          </td></tr></table>
-          <p style="text-align:center;margin:16px 0 0;font-size:12px;color:#475569">
-            You're receiving this because you have an active DevOps Agent account.<br>
-            <a href="{unsubscribe_url or base_url + '/settings'}" style="color:#64748b">Unsubscribe from the weekly digest</a>
+        <tr><td style="padding:24px 40px 32px">
+          <div style="text-align:center">
+            <a href="{base_url}/dashboard" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">Open Dashboard</a>
+          </div>
+          <p style="text-align:center;margin:24px 0 0;font-size:12px;color:#475569">
+            You're receiving this because your DevOps Agent account has a cloud account connected.<br>
+            <a href="{unsubscribe_url or base_url + '/settings'}" style="color:#64748b">Unsubscribe from tips and weekly summary emails</a>
           </p>
         </td></tr>
-
       </table>
     </td></tr>
   </table>

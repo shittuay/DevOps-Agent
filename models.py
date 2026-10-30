@@ -21,6 +21,7 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=utcnow)
     last_login = db.Column(db.DateTime)
     last_digest_sent_at = db.Column(db.DateTime)  # weekly digest email, one per week
+    security_checked_at = db.Column(db.DateTime)  # last AWS security check that read the account
     signup_source = db.Column(db.String(110))  # first-visit utm_source/ref or referring site
 
     # Profile settings

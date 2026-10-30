@@ -15,32 +15,34 @@ from src.utils.timeutils import utcnow
 
 logger = logging.getLogger(__name__)
 
+# Keys are stored in DripEmailLog, so never rename one: a renamed key would be
+# re-sent to everyone who already received it.
 DRIP_SEQUENCE: List[Dict[str, Any]] = [
     {
         'key': 'day_2_credits',
         'delay_days': 2,
-        'subject': '3 things you can do with your 20 free credits',
+        'subject': 'Three things to try with your free credits',
         'skip_if_upgraded': False,
         'requires_low_credits': False,
     },
     {
         'key': 'day_5_persona',
         'delay_days': 5,
-        'subject': 'How a platform engineer saves 2 hours/day',
+        'subject': 'Find out why a Kubernetes pod is failing, from chat',
         'skip_if_upgraded': False,
         'requires_low_credits': False,
     },
     {
         'key': 'day_14_power',
         'delay_days': 14,
-        'subject': 'Credits halfway — here\'s what power users do',
+        'subject': 'Four ways to get more out of DevOps Agent',
         'skip_if_upgraded': True,
         'requires_low_credits': False,
     },
     {
         'key': 'day_25_upgrade',
         'delay_days': 25,
-        'subject': '5 credits left — upgrade now',
+        'subject': "You're almost out of free credits",
         'skip_if_upgraded': True,
         'requires_low_credits': True,
     },
@@ -238,7 +240,7 @@ def _email_wrapper(content: str, unsub_url: str) -> str:
           {content}
           <p style="text-align:center;margin:24px 0 0;font-size:12px;color:#475569">
             You're receiving this because you signed up for DevOps Agent.<br>
-            <a href="{unsub_url}" style="color:#64748b">Unsubscribe from onboarding emails</a>
+            <a href="{unsub_url}" style="color:#64748b">Unsubscribe from tips and weekly summary emails</a>
           </p>
         </td></tr>
 
@@ -249,125 +251,135 @@ def _email_wrapper(content: str, unsub_url: str) -> str:
 </html>"""
 
 
+def _card(title: str, body: str) -> str:
+    return (
+        '<tr><td style="padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px">'
+        f'<div style="font-size:15px;font-weight:700;color:#ff6b35;margin-bottom:4px">{title}</div>'
+        f'<div style="font-size:13px;color:#94a3b8;line-height:1.6">{body}</div>'
+        '</td></tr><tr><td style="height:8px"></td></tr>'
+    )
+
+
+def _cards(*cards) -> str:
+    return '<table width="100%" cellpadding="0" cellspacing="0">' + ''.join(cards) + '</table>'
+
+
+def _button(href: str, label: str) -> str:
+    return (
+        '<div style="text-align:center;margin:28px 0 0">'
+        f'<a href="{href}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);'
+        f'color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">{label}</a></div>'
+    )
+
+
+def _intro(title: str, line: str) -> str:
+    return (
+        f'<h1 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#f1f5f9">{title}</h1>'
+        f'<p style="margin:0 0 24px;color:#94a3b8;font-size:14px;line-height:1.6">{line}</p>'
+    )
+
+
+def _note(text: str) -> str:
+    return f'<p style="margin:16px 0 0;color:#94a3b8;font-size:13px;line-height:1.6">{text}</p>'
+
+
+def _q(text: str) -> str:
+    return f'<span style="color:#e2e8f0">&ldquo;{text}&rdquo;</span>'
+
+
 def _html_day2(username: str, base_url: str, unsub_url: str) -> str:
-    content = f"""
-          <h1 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#f1f5f9">3 things you can do with your 20 free credits</h1>
-          <p style="margin:0 0 24px;color:#94a3b8;font-size:14px">Hi {username} — here are the quickest wins to try.</p>
-
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr><td style="padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;margin-bottom:12px">
-              <div style="font-size:15px;font-weight:700;color:#ff6b35;margin-bottom:4px">1. Scan your AWS account</div>
-              <div style="font-size:13px;color:#94a3b8">"Show me all EC2 instances running in us-east-1" — instant inventory, zero setup.</div>
-            </td></tr>
-            <tr><td style="height:8px"></td></tr>
-            <tr><td style="padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px">
-              <div style="font-size:15px;font-weight:700;color:#ff6b35;margin-bottom:4px">2. Find cost savings</div>
-              <div style="font-size:13px;color:#94a3b8">"Are there any unused EBS volumes?" — most teams find $50-200/mo in waste.</div>
-            </td></tr>
-            <tr><td style="height:8px"></td></tr>
-            <tr><td style="padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px">
-              <div style="font-size:15px;font-weight:700;color:#ff6b35;margin-bottom:4px">3. Check security posture</div>
-              <div style="font-size:13px;color:#94a3b8">"List IAM users without MFA" — know your exposure in one message.</div>
-            </td></tr>
-          </table>
-
-          <div style="text-align:center;margin:28px 0 0">
-            <a href="{base_url}/chat" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">Try it now</a>
-          </div>"""
+    content = (
+        _intro('Three things to try with your free credits',
+               f'Hi {username}, here are three good first questions. Type any of them in chat.')
+        + _cards(
+            _card('1. See what you are running', _q('List my EC2 instances in us-east-1') +
+                  ' gives you an inventory with state, type and tags.'),
+            _card('2. Look for waste', _q('Find unattached EBS volumes and instances that have been stopped for a while') +
+                  ' shows resources you may be paying for without using.'),
+            _card('3. Check security basics', _q('Which IAM users have no MFA?') +
+                  ' tells you who can sign in with only a password.'),
+        )
+        + _note('These read your account and change nothing. Anything risky, such as deleting or stopping a '
+                'resource, waits for you to confirm. No cloud account connected yet? Turn on '
+                '<strong style="color:#e2e8f0">Sandbox (practice)</strong> in the chat sidebar to try it on '
+                'simulated resources.')
+        + _button(f'{base_url}/chat', 'Open chat')
+    )
     return _email_wrapper(content, unsub_url)
 
 
 def _html_day5(username: str, base_url: str, unsub_url: str) -> str:
-    content = f"""
-          <h1 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#f1f5f9">How a platform engineer saves 2 hours/day</h1>
-          <p style="margin:0 0 20px;color:#94a3b8;font-size:14px">Hi {username} — here's a real workflow from one of our early users.</p>
-
-          <div style="padding:20px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;margin-bottom:20px">
-            <p style="color:#e2e8f0;font-size:14px;line-height:1.7;margin:0 0 12px">
-              <strong style="color:#ff6b35">8:30 AM</strong> — "Show me any pods in CrashLoopBackOff across all namespaces"<br>
-              <strong style="color:#ff6b35">8:31 AM</strong> — "What are the logs for that failing pod?"<br>
-              <strong style="color:#ff6b35">8:32 AM</strong> — "Restart the deployment with the updated image tag"
-            </p>
-            <p style="color:#94a3b8;font-size:13px;margin:0">
-              What used to take 20 minutes of kubectl + context switching now takes 3 chat messages.
-            </p>
-          </div>
-
-          <p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 4px">
-            DevOps Agent handles <strong style="color:#e2e8f0">726 operations</strong> across AWS, Azure, GCP, Kubernetes, Terraform, Docker, and CI/CD — all through natural language.
-          </p>
-
-          <div style="text-align:center;margin:28px 0 0">
-            <a href="{base_url}/chat" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">Start a conversation</a>
-          </div>"""
+    content = (
+        _intro('Find out why a Kubernetes pod is failing, from chat',
+               f'Hi {username}, if you run an EKS cluster, you can troubleshoot it in a few messages.')
+        + _cards(
+            _card('1. Find the problem', _q('Show me pods that are not running in my cluster')),
+            _card('2. See why', _q('Show the logs and recent events for that pod')),
+            _card('3. Fix it', _q('Restart that deployment') +
+                  '. You see exactly what will change and confirm it first.'),
+        )
+        + _note('This works with EKS clusters in your connected AWS account. The cluster needs an access entry for '
+                'the DevOps Agent role; if it is missing, the agent tells you how to add it. Prefer a guided version? '
+                'Run <strong style="color:#e2e8f0">Troubleshoot Failing Kubernetes Pods</strong> from the Workflows tab.')
+        + _button(f'{base_url}/workflows', 'Open Workflows')
+    )
     return _email_wrapper(content, unsub_url)
 
 
 def _html_day14(username: str, base_url: str, unsub_url: str) -> str:
-    content = f"""
-          <h1 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#f1f5f9">You're halfway through your credits</h1>
-          <p style="margin:0 0 20px;color:#94a3b8;font-size:14px">Hi {username} — here's how power users get the most out of every credit.</p>
-
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr><td style="padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px">
-              <div style="font-size:15px;font-weight:700;color:#ff6b35;margin-bottom:4px">Connect your cloud credentials</div>
-              <div style="font-size:13px;color:#94a3b8">Settings &gt; Cloud Credentials — enables real-time infra sync, proactive alerts, and the weekly health digest.</div>
-            </td></tr>
-            <tr><td style="height:8px"></td></tr>
-            <tr><td style="padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px">
-              <div style="font-size:15px;font-weight:700;color:#ff6b35;margin-bottom:4px">Enable Skills</div>
-              <div style="font-size:13px;color:#94a3b8">Settings &gt; Skills — activate Kubernetes Troubleshooting, Cost Optimization, or Security Hardening for deeper, context-aware answers.</div>
-            </td></tr>
-            <tr><td style="height:8px"></td></tr>
-            <tr><td style="padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px">
-              <div style="font-size:15px;font-weight:700;color:#ff6b35;margin-bottom:4px">Use multi-step commands</div>
-              <div style="font-size:13px;color:#94a3b8">"Find all untagged resources, then create a Terraform import plan" — chain complex tasks into a single conversation.</div>
-            </td></tr>
-          </table>
-
-          <div style="text-align:center;margin:28px 0 0">
-            <a href="{base_url}/settings#cloud" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">Open Settings</a>
-          </div>"""
+    content = (
+        _intro('Four ways to get more out of DevOps Agent', f'Hi {username}, a few features worth knowing about.')
+        + _cards(
+            _card('Connect your cloud account',
+                  'Settings &gt; Cloud Credentials. Connect AWS, Azure or GCP and your resources sync every hour into '
+                  'the Dashboard and the infrastructure map. AWS accounts also get security checks and a weekly summary.'),
+            _card('Run a workflow',
+                  'The Workflows tab has step-by-step tasks such as launching a server, auditing IAM or finding idle '
+                  'resources. Fill in a short form and the agent does the rest.'),
+            _card('Turn on Skills',
+                  'Settings &gt; Skills. Adds expert guidance for Kubernetes troubleshooting, cost optimization, '
+                  'security hardening and more.'),
+            _card('Stay in control',
+                  'Risky actions wait for your confirmation in chat. Your requests and their results are listed on '
+                  'the Approvals page.'),
+        )
+        + _button(f'{base_url}/settings#cloud', 'Open Settings')
+    )
     return _email_wrapper(content, unsub_url)
 
 
+def _plan_rows():
+    """Plans as the app defines them, so the email can't drift from what users are charged."""
+    from services.subscription_tiers import TIER_DEFINITIONS
+    from services.model_router import DEFAULT_TIER_MODELS
+    rows = []
+    for t in TIER_DEFINITIONS:
+        cfg = DEFAULT_TIER_MODELS.get(t['name'])
+        model = (cfg.display_name if cfg else '').replace(' (Trial)', '')
+        price = '$0' if not t['monthly_price'] else f"${t['monthly_price']:.0f}/mo"
+        rows.append((t['display_name'], f"{t['monthly_credits']:,}", model, price))
+    return rows
+
+
 def _html_day25(username: str, base_url: str, unsub_url: str) -> str:
-    content = f"""
-          <h1 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#f1f5f9">Your free credits are almost gone</h1>
-          <p style="margin:0 0 20px;color:#94a3b8;font-size:14px">Hi {username} — upgrade to keep your infrastructure automation running.</p>
-
-          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid rgba(255,255,255,0.08);border-radius:10px;overflow:hidden">
-            <!-- Header row -->
-            <tr style="background:rgba(255,255,255,0.05)">
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#64748b"></td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#94a3b8;text-align:center">Free</td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#ff6b35;text-align:center">Starter</td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#ff6b35;text-align:center">Pro</td>
-            </tr>
-            <!-- Credits -->
-            <tr>
-              <td style="padding:10px 16px;font-size:13px;color:#94a3b8;border-top:1px solid rgba(255,255,255,0.06)">Monthly credits</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">20</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">200</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">1,000</td>
-            </tr>
-            <!-- Model -->
-            <tr>
-              <td style="padding:10px 16px;font-size:13px;color:#94a3b8;border-top:1px solid rgba(255,255,255,0.06)">AI model</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">Kimi K3</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">Kimi K3</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">Claude Sonnet</td>
-            </tr>
-            <!-- Price -->
-            <tr>
-              <td style="padding:10px 16px;font-size:13px;color:#94a3b8;border-top:1px solid rgba(255,255,255,0.06)">Price</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">$0</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">$29/mo</td>
-              <td style="padding:10px 16px;font-size:13px;color:#e2e8f0;text-align:center;border-top:1px solid rgba(255,255,255,0.06)">$99/mo</td>
-            </tr>
-          </table>
-
-          <div style="text-align:center;margin:28px 0 0">
-            <a href="{base_url}/billing" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ff6b35,#ff8c5a);color:white;font-weight:700;font-size:14px;border-radius:10px;text-decoration:none">Upgrade now</a>
-          </div>"""
+    cell = 'padding:10px 12px;font-size:13px;color:#e2e8f0;border-top:1px solid rgba(255,255,255,0.06)'
+    head = 'padding:10px 12px;font-size:12px;font-weight:700;color:#94a3b8'
+    body_rows = ''.join(
+        f'<tr><td style="{cell};font-weight:700">{n}</td><td style="{cell};text-align:center">{c}</td>'
+        f'<td style="{cell};text-align:center">{m}</td><td style="{cell};text-align:center">{p}</td></tr>'
+        for n, c, m, p in _plan_rows()
+    )
+    table = (
+        '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid rgba(255,255,255,0.08);border-radius:10px">'
+        f'<tr style="background:rgba(255,255,255,0.05)"><td style="{head}">Plan</td>'
+        f'<td style="{head};text-align:center">Credits / month</td><td style="{head};text-align:center">AI model</td>'
+        f'<td style="{head};text-align:center">Price</td></tr>{body_rows}</table>'
+    )
+    content = (
+        _intro("You're almost out of free credits",
+               f'Hi {username}, your free credits refill every month. If you need more before then, '
+               'a plan or a one-off credit pack keeps you going.')
+        + table
+        + _button(f'{base_url}/billing', 'See plans and credit packs')
+    )
     return _email_wrapper(content, unsub_url)

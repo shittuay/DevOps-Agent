@@ -2449,6 +2449,27 @@ Owner context: no users yet; TikTok ads started 2026-10-14 (~5,000 reach). Two c
   account needed" (`startSandbox()`); connecting a cloud account is the secondary choice.
 - Guard: `tests/test_signup_source_and_sandbox_first.py`.
 
+### Marketing emails (rewritten 2026-10-30, owner request)
+
+Sent by the app's own scheduler (`services/scheduler.py`), not an agent: the onboarding sequence
+(`services/drip_email_service.py`, days 2/5/14/25 after signup, one per hourly run; day 0 is
+`EmailService.send_welcome_email` at signup) and the Sunday weekly summary (`_run_weekly_digest`,
+users with a cloud account only). One unsubscribe link (`/email/unsubscribe`, sets
+`User.email_opt_out`) stops both; account emails still go out.
+- They used to promise removed features (proactive alerts), suggest host-only tools (Terraform),
+  quote an invented early user saving "2 hours/day", a "$50-200/mo" waste figure and "726
+  operations", and grade every account "A (Excellent)" in the summary even when no security check
+  had run. Every claim must be something the app does today.
+- **Never rename a `DRIP_SEQUENCE` key**: `DripEmailLog` stores them, so a renamed step is re-sent
+  to everyone. Change subjects and content freely.
+- The day-25 plan table is built from `TIER_DEFINITIONS` and `DEFAULT_TIER_MODELS`; don't hardcode
+  prices, credits or model names in emails.
+- The summary has no score. Security findings are reported only if a check read the account in
+  the last 7 days (`User.security_checked_at`, set by `scan_aws_security` after at least one area
+  succeeds); otherwise it says the checks were not run. Non-AWS accounts are told the checks are
+  AWS-only. Cost savings are labelled estimates.
+- Guard: `tests/test_marketing_emails_honest.py` (banned phrases, plan table, summary states).
+
 ### npm package `@devopsagent/mcp-server` (`mcp/`)
 
 A ~85-line stdio bridge (`mcp/bin/server.js`) that forwards JSON-RPC to

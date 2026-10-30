@@ -95,6 +95,12 @@ def scan_aws_security(user_id: int) -> Dict:
         unique.setdefault((f['finding_type'], f.get('affected_resource_id') or ''), f)
 
     now = utcnow()
+    from models import User
+    user_row = User.query.get(user_id)
+    if user_row is not None:
+        # The weekly summary reports findings only for a recent check; zero findings
+        # with no check behind them is not a clean account.
+        user_row.security_checked_at = now
     for (ftype, rid), data in unique.items():
         existing = SecurityFinding.query.filter_by(
             user_id=user_id, finding_type=ftype, affected_resource_id=rid or None,
