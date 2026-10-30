@@ -2668,6 +2668,7 @@ def reset_streaming_locks():
 
 @app.route('/api/run-migration', methods=['POST'])
 @login_required
+@_admin_required
 def run_db_migration():
     """Run schema migration: creates missing tables and adds missing columns. Safe to re-run."""
     from sqlalchemy import inspect as _inspect, text as _text
