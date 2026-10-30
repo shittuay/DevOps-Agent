@@ -259,6 +259,8 @@ def terraform_apply(
         command = ['terraform', 'apply']
 
         if plan_file:
+            if plan_file.startswith('-'):
+                return {'success': False, 'error': "plan_file must be a file path, not an option"}
             command.append(plan_file)
         else:
             if auto_approve:
