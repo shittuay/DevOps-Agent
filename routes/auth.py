@@ -105,6 +105,11 @@ def _is_safe_redirect(target: str) -> bool:
     """Reject absolute URLs and protocol-relative URLs to prevent open redirects."""
     if not target or '\\' in target or any(ord(c) < 32 for c in target):
         return False
+    # Browsers strip tabs/newlines and treat backslashes as slashes, so "http:/evil.com"
+    # and "/\\evil.com" reach another host even though urlparse sees no netloc.
+    target = target.strip()
+    if any(c in target for c in '\\\t\r\n'):
+        return False
     ref_url = urlparse(request.host_url)
     test_url = urlparse(target)
     if test_url.scheme and not test_url.netloc:
