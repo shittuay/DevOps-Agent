@@ -1990,7 +1990,7 @@ def email_unsubscribe():
     if user:
         user.email_opt_out = True
         db.session.commit()
-    return '<html><body style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Unsubscribed</h2><p style="color:#94a3b8">You will no longer receive onboarding or weekly digest emails from DevOps Agent. Budget alerts you set up are not affected.</p></div></body></html>'
+    return '<html><body style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Unsubscribed</h2><p style="color:#94a3b8">You will no longer receive tips or weekly summary emails from DevOps Agent. Account emails, such as sign-in codes, billing notices and budget alerts you set up, still arrive. Budget alerts you set up are not affected.</p></div></body></html>'
 
 
 @app.route('/api/status/health')

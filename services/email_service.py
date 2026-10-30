@@ -301,17 +301,18 @@ class EmailService:
         html = self._wrap_html(f"""
             <h2 style="color: #333; margin-bottom: 12px;">Welcome to DevOps Agent</h2>
             <p>Hi {user.username},</p>
-            <p>Your account is set up and ready to go. You're on the <strong>Free plan</strong> with 20 credits to get started.</p>
+            <p>Your account is ready. You're on the <strong>Free plan</strong>, with 20 credits that refill every month.</p>
             <p style="margin-top: 16px; margin-bottom: 8px;"><strong>What you can do:</strong></p>
             <ul style="color: #555; padding-left: 20px; line-height: 1.8;">
-                <li>Manage AWS, Azure, and GCP resources via chat</li>
-                <li>Deploy and monitor Kubernetes clusters</li>
-                <li>Automate CI/CD pipelines</li>
-                <li>Get AI-powered infrastructure recommendations</li>
+                <li>Ask about and manage your AWS, Azure and GCP resources in chat</li>
+                <li>Troubleshoot Kubernetes on EKS clusters in your AWS account</li>
+                <li>Run step-by-step workflows, such as launching a server or auditing IAM</li>
+                <li>Practise first in Sandbox mode, on simulated resources, with nothing real changed</li>
             </ul>
+            <p style="color: #555;">Anything risky, such as deleting or stopping a resource, waits for you to confirm.</p>
             <div style="text-align: center; margin: 28px 0;">
-                <a href="{self.base_url}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
-                    Start Managing Infrastructure
+                <a href="{self.base_url}/chat" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    Open DevOps Agent
                 </a>
             </div>
             <p style="font-size: 13px; color: #666;">
@@ -333,7 +334,7 @@ class EmailService:
                     Get More Credits
                 </a>
             </div>
-            <p style="font-size: 13px; color: #666;">Credit packs start at $10 for 100 credits. Subscriptions include monthly credits automatically.</p>
+            <p style="font-size: 13px; color: #666;">Credits refill every month. Credit packs and plans are on the Billing page.</p>
         """)
         return self.send_email(user.email, "Low Credits Warning - DevOps Agent", html)
 
