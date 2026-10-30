@@ -260,10 +260,10 @@ def delete_user(user_id):
 def audit_log():
     """View system audit log."""
     page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(max(request.args.get('per_page', 50, type=int), 1), 200)
 
-    # Get usage logs as audit trail
-    logs = UsageLog.query.order_by(UsageLog.timestamp.desc()).paginate(
+    # Get usage logs as audit trail (UsageLog's time column is created_at)
+    logs = UsageLog.query.order_by(UsageLog.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
 
