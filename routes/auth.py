@@ -118,7 +118,9 @@ def _is_safe_redirect(target: str) -> bool:
         return False
     if test_url.netloc and test_url.netloc != ref_url.netloc:
         return False
-    if target.startswith('//'):
+    if target.startswith('//') or '\\' in target:
+        return False
+    if test_url.scheme and not test_url.netloc:
         return False
     return True
 
