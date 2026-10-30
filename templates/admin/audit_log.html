@@ -97,17 +97,21 @@
                         <th>Timestamp</th>
                         <th>User</th>
                         <th>Action</th>
-                        <th>Details</th>
+                        <th>Tool</th>
+                        <th>Model</th>
+                        <th>Result</th>
                         <th>Credits Used</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for log in logs.items %}
                     <tr>
-                        <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'N/A' }}</td>
-                        <td>{{ log.user_id }}</td>
+                        <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else 'N/A' }}</td>
+                        <td>{{ log.user.email if log.user else log.user_id }}</td>
                         <td><span class="action-type">{{ log.action_type or 'unknown' }}</span></td>
-                        <td>{{ log.details or '-' }}</td>
+                        <td>{{ log.tool_name or '-' }}</td>
+                        <td>{{ log.ai_model or '-' }}</td>
+                        <td>{% if log.success is sameas false %}Failed{% if log.error_message %}: {{ log.error_message[:120] }}{% endif %}{% else %}OK{% endif %}</td>
                         <td>{{ log.credits_used or 0 }}</td>
                     </tr>
                     {% endfor %}

@@ -4189,3 +4189,7 @@ into the prompt, so they reach `ChatMessage` and the LLM provider in plaintext; 
 "visible-or-owned template" query is copy-pasted in `get_workflow` and `execute_workflow`
 (`routes/workflows.py`) — extract a helper; (3) a user-created template whose `inputs` spec lacks
 `key`/`label` raises `KeyError` (500) in `execute_workflow` instead of a 400.
+
+## 2026-10-30: Admin › Audit log returned 500
+
+`routes/admin.py`'s `audit_log()` sorted by `UsageLog.timestamp` and the template read `log.timestamp` / `log.details`. `UsageLog` has neither: the time column is `created_at`, and the detail lives in `tool_name`, `ai_model`, `success`, `error_message`. Every visit raised `AttributeError`. Fixed to use the real columns, show the user's email, and cap `per_page` at 200. Guard: `tests/test_admin_audit_log.py`.
