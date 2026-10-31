@@ -29,7 +29,7 @@ pyopenssl==26.4.0  # pinned: requires cryptography>=49,<51 — must be bumped in
 email-validator==2.2.0
 pyotp==2.9.0
 qrcode==7.4.2
-Pillow==13.0.0
+Pillow==12.3.0  # 13.x needs Python >=3.11; every deploy since this was bumped (2026-10-30) failed at the server's pip install step
 
 # API & HTTP
 anthropic==0.72.0
@@ -150,4 +150,4 @@ pytest-cov==4.1.0
 pytest-xdist==3.5.0
 joserfc==1.6.8
 signxml==4.4.0
-dnspython==2.9.0
+dnspython==2.8.0  # 2.9.0 needs Python >=3.11 (same deploy failure as Pillow 13)
