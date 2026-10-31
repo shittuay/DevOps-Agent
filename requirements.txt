@@ -148,6 +148,6 @@ typing_extensions==4.16.0
 pytest==9.0.3
 pytest-cov==4.1.0
 pytest-xdist==3.5.0
-joserfc==1.6.8
+joserfc==1.7.6
 signxml==4.4.0
 dnspython==2.8.0  # 2.9.0 needs Python >=3.11 (same deploy failure as Pillow 13)
