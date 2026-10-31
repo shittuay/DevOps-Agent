@@ -338,7 +338,7 @@ class GroqProvider(ModelProvider):
 
 
 class KimiProvider(ModelProvider):
-    """Moonshot Kimi K3 adapter (OpenAI-compatible API)."""
+    """Moonshot Kimi adapter (OpenAI-compatible API)."""
 
     def __init__(self):
         super().__init__('kimi')
@@ -370,11 +370,12 @@ class KimiProvider(ModelProvider):
             oai_messages.append({'role': msg['role'], 'content': msg['content']})
 
         try:
-            response = client.chat.completions.create(
-                model=kwargs.get('model', self.model),
-                messages=oai_messages,
-                max_tokens=kwargs.get('max_tokens', 4096),
-            )
+            from services.model_router import kimi_create_with_fallback
+            response = kimi_create_with_fallback(client, {
+                'model': kwargs.get('model', self.model),
+                'messages': oai_messages,
+                'max_tokens': kwargs.get('max_tokens', 4096),
+            })
             self.mark_success()
             return response.choices[0].message.content
         except Exception as e:
@@ -395,12 +396,13 @@ class KimiProvider(ModelProvider):
             oai_messages.append({'role': msg['role'], 'content': msg['content']})
 
         try:
-            stream = client.chat.completions.create(
-                model=kwargs.get('model', self.model),
-                messages=oai_messages,
-                max_tokens=kwargs.get('max_tokens', 4096),
-                stream=True,
-            )
+            from services.model_router import kimi_create_with_fallback
+            stream = kimi_create_with_fallback(client, {
+                'model': kwargs.get('model', self.model),
+                'messages': oai_messages,
+                'max_tokens': kwargs.get('max_tokens', 4096),
+                'stream': True,
+            })
             for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content

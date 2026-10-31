@@ -15,7 +15,7 @@ import openai
 import pytest
 
 from routes import curriculum
-from services.model_router import DEFAULT_KIMI_MODEL
+from services.model_router import DEFAULT_KIMI_MODEL, KIMI_FALLBACK_MODEL
 
 MODULE_ID = 'linux-cli'
 GOOD_QUIZ = [{'question': f'Q{i}?', 'options': ['a', 'b', 'c', 'd'], 'correct': i % 4,
@@ -60,13 +60,13 @@ def _ask(client):
 
 
 def test_default_model_is_the_app_wide_kimi_model_not_moonshot_v1(no_env_override):
-    assert curriculum._curriculum_models() == [DEFAULT_KIMI_MODEL]
+    assert curriculum._curriculum_models() == [DEFAULT_KIMI_MODEL, KIMI_FALLBACK_MODEL]
     assert not any(m.startswith('moonshot-v1') for m in curriculum._curriculum_models())
 
 
 def test_override_is_tried_first_then_the_default(monkeypatch):
     monkeypatch.setenv('CURRICULUM_MODEL', 'some-other-model')
-    assert curriculum._curriculum_models() == ['some-other-model', DEFAULT_KIMI_MODEL]
+    assert curriculum._curriculum_models() == ['some-other-model', DEFAULT_KIMI_MODEL, KIMI_FALLBACK_MODEL]
 
 
 def test_coach_streams_only_the_answer_text(coach):

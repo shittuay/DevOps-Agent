@@ -57,7 +57,7 @@ Want to try it without a cloud account? Turn on **Sandbox mode** (Settings → L
 results are simulated and labelled `[Sandbox]`.
 
 Plans: Free (20 credits a month), Starter ($29, 200 credits), Professional ($99, 1,000 credits)
-and Business ($299, 3,000 credits). Free and Starter use Kimi K3; Professional and Business use
+and Business ($299, 3,000 credits). Free and Starter use Kimi K3.1 Pro; Professional and Business use
 Claude. Extra credit packs are available on the Billing page.
 
 ### Other ways in

@@ -2,7 +2,7 @@
 Tiered AI Model Router
 
 Maps subscription tiers to AI providers and models.
-Free and Starter users default to Kimi K3 (cheaper, with tools).
+Free and Starter users default to Kimi (cheaper, with tools).
 Professional and Business users default to Claude (premium).
 Users can override their tier default via preferred_model_provider.
 """
@@ -16,13 +16,45 @@ logger = logging.getLogger(__name__)
 
 # Moonshot Kimi model id, overridable via the KIMI_MODEL env var. Kept as one
 # constant since the same default was drifting across independent call sites.
-DEFAULT_KIMI_MODEL = 'kimi-k3'
+# kimi-k3.1-pro: released 2026-10-23, 1M context, tool calling, reasoning always on.
+DEFAULT_KIMI_MODEL = 'kimi-k3.1-pro'
+KIMI_DISPLAY_NAME = 'Kimi K3.1 Pro'
+# Used if Moonshot refuses the configured model id (not found / not enabled for the key),
+# so a model change can never take chat down for free and starter users.
+KIMI_FALLBACK_MODEL = 'kimi-k3'
+
+
+def kimi_model_unavailable(exc) -> bool:
+    """True when the provider rejected the model id itself, not the request."""
+    try:
+        import openai
+    except ImportError:
+        return False
+    if isinstance(exc, openai.NotFoundError):
+        return True
+    return isinstance(exc, openai.BadRequestError) and 'model' in str(exc).lower()
+
+
+def kimi_create_with_fallback(client, params: dict):
+    """chat.completions.create, retried once on KIMI_FALLBACK_MODEL if the model id is refused.
+
+    Updates params['model'] in place so the caller keeps using the model that worked.
+    """
+    try:
+        return client.chat.completions.create(**params)
+    except Exception as exc:  # noqa: BLE001 - re-raised unless the model id was refused
+        if params.get('model') == KIMI_FALLBACK_MODEL or not kimi_model_unavailable(exc):
+            raise
+        logger.warning("Kimi model %s unavailable (%s); falling back to %s",
+                       params.get('model'), exc, KIMI_FALLBACK_MODEL)
+        params['model'] = KIMI_FALLBACK_MODEL
+        return client.chat.completions.create(**params)
 
 
 @dataclass
 class ModelConfig:
     provider: str       # 'anthropic', 'kimi', or 'groq'
-    model: str          # e.g. 'kimi-k3', 'claude-sonnet-4-6'
+    model: str          # e.g. 'kimi-k3.1-pro', 'claude-sonnet-4-6'
     display_name: str   # Human-readable name for UI
     supports_tools: bool
     max_tokens: int = 4096
@@ -34,8 +66,8 @@ class ModelConfig:
 # Kimi model config constant
 KIMI_MODEL_CONFIG = ModelConfig(
     provider='kimi',
-    model='kimi-k3',
-    display_name='Kimi K3',
+    model=DEFAULT_KIMI_MODEL,
+    display_name=KIMI_DISPLAY_NAME,
     supports_tools=True,
     max_tokens=4096,
     max_tools=100,
@@ -88,8 +120,8 @@ CLAUDE_OVERRIDE_CONFIGS = {
 DEFAULT_TIER_MODELS = {
     'free': ModelConfig(
         provider='kimi',
-        model='kimi-k3',
-        display_name='Kimi K3 (Trial)',
+        model=DEFAULT_KIMI_MODEL,
+        display_name=f'{KIMI_DISPLAY_NAME} (Trial)',
         supports_tools=True,
         max_tokens=4096,
         max_tools=100,
@@ -98,8 +130,8 @@ DEFAULT_TIER_MODELS = {
     ),
     'starter': ModelConfig(
         provider='kimi',
-        model='kimi-k3',
-        display_name='Kimi K3',
+        model=DEFAULT_KIMI_MODEL,
+        display_name=KIMI_DISPLAY_NAME,
         supports_tools=True,
         max_tokens=4096,
         max_tools=100,
@@ -199,7 +231,7 @@ def resolve_model_with_preference(tier_name: str, preferred_provider: Optional[s
         return ModelConfig(
             provider='kimi',
             model=kimi_model,
-            display_name='Kimi K3',
+            display_name=KIMI_DISPLAY_NAME,
             supports_tools=True,
             max_tokens=tier_defaults.max_tokens,
             max_tools=tier_defaults.max_tools,
