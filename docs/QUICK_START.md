@@ -87,8 +87,8 @@ Response, IaC, CI/CD and On-Call.
 
 | Plan | Price | Credits / month | Model |
 |------|-------|-----------------|-------|
-| Free | $0 | 20 | Kimi K3 |
-| Starter | $29 | 200 | Kimi K3 |
+| Free | $0 | 20 | Kimi K3.1 Pro |
+| Starter | $29 | 200 | Kimi K3.1 Pro |
 | Professional | $99 | 1,000 | Claude |
 | Business | $299 | 3,000 | Claude |
 

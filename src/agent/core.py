@@ -2556,7 +2556,7 @@ class DevOpsAgent:
 
     def _call_kimi_api(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None, swarm_max_agents: int = 0) -> str:
         """
-        Call Kimi K3 API with tool support (OpenAI-compatible format).
+        Call the Kimi API with tool support (OpenAI-compatible format).
 
         Args:
             user_preferences_context: Optional context string with user preferences
@@ -2629,8 +2629,9 @@ class DevOpsAgent:
                     params['extra_body'] = {"swarm": {"max_agents": effective_swarm}}
 
                 # Single retry on transient quota/timeout failures
+                from services.model_router import kimi_create_with_fallback
                 try:
-                    response = client.chat.completions.create(**params)
+                    response = kimi_create_with_fallback(client, params)
                 except Exception as _retry_exc:
                     _retry_str = str(_retry_exc)
                     if any(k in _retry_str for k in ('429', 'rate_limit', 'timeout', 'RateLimitError', 'APITimeoutError')):
@@ -2639,6 +2640,7 @@ class DevOpsAgent:
                         response = client.chat.completions.create(**params)
                     else:
                         raise
+                model = params['model']
                 self._log_kimi_usage(getattr(response, 'usage', None))
                 choice = response.choices[0]
                 msg = choice.message
@@ -2646,7 +2648,7 @@ class DevOpsAgent:
                 if msg.tool_calls:
                     tools_called_this_turn = True
                     # Append assistant message with tool calls
-                    # Include reasoning_content for Kimi K3 (reasoning model requirement)
+                    # Include reasoning_content (Kimi reasoning models require it back on tool-call turns)
                     assistant_dict = msg.model_dump()
                     if hasattr(msg, 'reasoning_content') and msg.reasoning_content:
                         assistant_dict['reasoning_content'] = msg.reasoning_content
@@ -2803,7 +2805,7 @@ class DevOpsAgent:
 
     def _call_kimi_api_streaming(self, user_preferences_context: Optional[str] = None, model_override: Optional[str] = None, trial_context: Optional[str] = None, swarm_max_agents: int = 0):
         """
-        Call Kimi K3 API with streaming and tool support.
+        Call the Kimi API with streaming and tool support.
 
         Yields:
             str: Text chunks as they arrive from the Kimi API
@@ -2871,16 +2873,18 @@ class DevOpsAgent:
                 collected_tool_calls = {}  # index -> {id, name, arguments}
                 collected_usage = None
 
+                from services.model_router import kimi_create_with_fallback
                 try:
-                    stream = client.chat.completions.create(**params)
+                    stream = kimi_create_with_fallback(client, params)
                 except Exception as _so_exc:
                     # Defensive: if the provider rejects stream_options, drop it and retry
                     # so usage logging can never break the chat stream.
                     if 'stream_options' in str(_so_exc).lower():
                         params.pop('stream_options', None)
-                        stream = client.chat.completions.create(**params)
+                        stream = kimi_create_with_fallback(client, params)
                     else:
                         raise
+                model = params['model']
                 for chunk in stream:
                     # The final usage chunk (from include_usage) has empty choices.
                     if getattr(chunk, 'usage', None) is not None:
@@ -2889,7 +2893,7 @@ class DevOpsAgent:
                         continue
                     delta = chunk.choices[0].delta
 
-                    # Reasoning content (Kimi K3 thinking — collect but don't yield)
+                    # Reasoning content (Kimi thinking — collect but don't yield)
                     if getattr(delta, 'reasoning_content', None):
                         collected_reasoning += delta.reasoning_content
 

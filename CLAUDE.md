@@ -1432,7 +1432,7 @@ def my_tool(param: str, project_id: Optional[str] = None) -> Dict[str, Any]:
 
 ## Free Trial System
 
-Free-tier users get **20 credits/month** with full agent experience — Kimi K3 with real tool execution.
+Free-tier users get **20 credits/month** with full agent experience — Kimi K3.1 Pro with real tool execution.
 **They refill monthly like every plan** (owner decision, 2026-10-14). Chat and `/api/v1` used to
 skip the refill for free users ("one-time trial") while Billing refilled them. Every credit gate
 now calls `UserSubscription.refresh_credits_if_due()`; the out-of-credits message
@@ -1443,8 +1443,8 @@ allowance from `TIER_DEFINITIONS`. Guard: `tests/test_free_credits_monthly.py`.
 
 | Tier | Provider | Model | Tools | Max Tokens |
 |------|----------|-------|-------|------------|
-| free | Kimi | `kimi-k3` | Yes | 4096 |
-| starter ($29/mo) | Kimi | `kimi-k3` | Yes | 4096 |
+| free | Kimi | `kimi-k3.1-pro` | Yes | 4096 |
+| starter ($29/mo) | Kimi | `kimi-k3.1-pro` | Yes | 4096 |
 | professional ($99/mo) | Anthropic | `claude-sonnet-4-6` | Yes | 8192 |
 | business ($299/mo) | Anthropic | `claude-opus-4-6` | Yes | 8192 |
 
@@ -1452,7 +1452,7 @@ Users can override tier default via chat toolbar toggle (`/api/model/switch`).
 
 ### Key Implementation Points
 
-- **Kimi K3**: OpenAI-compatible API at `https://api.moonshot.ai/v1`. Requires `MOONSHOT_API_KEY`. Like the k2.7 line, it is a reasoning model — responses carry a `reasoning_content` field alongside `content` (the app reads `content`); it spends more completion tokens on reasoning, so keep `max_tokens` generous.
+- **Kimi K3.1 Pro** (default since 2026-10-30, `DEFAULT_KIMI_MODEL`; released 2026-10-23, 1M context, tool calling): OpenAI-compatible API at `https://api.moonshot.ai/v1`. Requires `MOONSHOT_API_KEY`. **Every Kimi call goes through `model_router.kimi_create_with_fallback()`**: if Moonshot refuses the model id (404, or a 400 naming the model) it retries once on `KIMI_FALLBACK_MODEL` (`kimi-k3`) and keeps using it for the rest of the turn, so a model change can't take chat down. Rate limits and other errors are not hidden. The id was taken from Moonshot's published list, not checked live against our key; check the server log for `falling back to kimi-k3` after a deploy. Guard: `tests/test_kimi_model_default.py`. Like K3 and the k2.7 line, it is a reasoning model — responses carry a `reasoning_content` field alongside `content` (the app reads `content`); it spends more completion tokens on reasoning, so keep `max_tokens` generous.
 - **Tool format**: `_convert_tools_to_openai_format()` converts Anthropic format to OpenAI function-calling format.
 - **Credit exhaustion**: Free users get 200 response with `trial_ended: true` (kept for the UI; it means "this month's free credits are used"), not 402.
 - **Groq fallback**: Used when both Anthropic and Kimi are down. See `GROQ_FALLBACK_MODEL` in `chat_service.py`.
@@ -1532,7 +1532,7 @@ Optional:
 - `STRIPE_SECRET_KEY` - Stripe payment processing (see Billing section above)
 - `BASE_URL` - App base URL for Stripe callbacks (default: `https://devopsagent.io`)
 - `MOONSHOT_API_KEY` - Kimi API key (required for Kimi model provider)
-- `KIMI_MODEL` - Kimi model override (default: `kimi-k3`, the latest). Valid Moonshot ids (verified live via `/v1/models` 2026-07-22): `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5` (no bare `kimi-k2.7`).
+- `KIMI_MODEL` - Kimi model override (default: `kimi-k3.1-pro`). **If the server's `.env` sets it, that value wins over the default.** Moonshot's list as of 2026-10-30: `kimi-k3.1-pro`, `kimi-k3.1-pro-highspeed`, `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6` (the last three retire end of December 2026, no new users from 2026-10-31).
 - `METRICS_TOKEN` - Bearer token gating `/metrics` (see Prometheus Metrics section below). Unset = endpoint returns 403, disabled by default.
 - `PROMETHEUS_MULTIPROC_DIR` - Set in `devops-agent.service` (not `.env`) to enable multiprocess metric aggregation across gunicorn's 3 workers. Unset in local dev/tests — falls back to a single process-local registry.
 

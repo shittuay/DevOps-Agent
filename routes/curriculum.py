@@ -13,7 +13,7 @@ from flask_login import login_required, current_user
 from extensions import limiter
 from models import db, UserCurriculumProgress, UserQuizAttempt, UserPendingQuiz
 from curriculum.data import CURRICULUM, CERTIFICATIONS, TOTAL_MODULES
-from services.model_router import DEFAULT_KIMI_MODEL
+from services.model_router import DEFAULT_KIMI_MODEL, KIMI_FALLBACK_MODEL, kimi_model_unavailable
 from services.secrets_manager import get_moonshot_api_key
 from src.utils.timeutils import utcnow
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # The AI Coach and quiz used to hardcode moonshot-v1-8k / moonshot-v1-32k, which are not in
 # Moonshot's current model list (CLAUDE.md, verified 2026-07-22), so every request failed with
 # the provider's raw error. They now follow the same model as the rest of the app.
-COACH_MAX_TOKENS = 4096  # kimi-k3 is a reasoning model: thinking tokens count against this
+COACH_MAX_TOKENS = 4096  # Kimi K3.x are reasoning models: thinking tokens count against this
 QUIZ_MAX_TOKENS = 4096
 
 
@@ -30,14 +30,11 @@ def _curriculum_models():
     """Models to try, in order: an explicit override first, then the app-wide default."""
     configured = (os.environ.get('CURRICULUM_MODEL') or os.environ.get('KIMI_MODEL')
                   or DEFAULT_KIMI_MODEL)
-    return list(dict.fromkeys([configured, DEFAULT_KIMI_MODEL]))
+    return list(dict.fromkeys([configured, DEFAULT_KIMI_MODEL, KIMI_FALLBACK_MODEL]))
 
 
 def _is_model_unavailable(exc) -> bool:
-    import openai
-    if isinstance(exc, openai.NotFoundError):
-        return True
-    return isinstance(exc, openai.BadRequestError) and 'model' in str(exc).lower()
+    return kimi_model_unavailable(exc)
 
 
 def _create_completion(client, **kwargs):

@@ -4193,3 +4193,7 @@ into the prompt, so they reach `ChatMessage` and the LLM provider in plaintext; 
 ## 2026-10-30: Admin › Audit log returned 500
 
 `routes/admin.py`'s `audit_log()` sorted by `UsageLog.timestamp` and the template read `log.timestamp` / `log.details`. `UsageLog` has neither: the time column is `created_at`, and the detail lives in `tool_name`, `ai_model`, `success`, `error_message`. Every visit raised `AttributeError`. Fixed to use the real columns, show the user's email, and cap `per_page` at 200. Guard: `tests/test_admin_audit_log.py`.
+
+## 2026-10-30: Kimi default moved to K3.1 Pro
+
+Owner asked for the latest Kimi model. `DEFAULT_KIMI_MODEL` is now `kimi-k3.1-pro` (Moonshot, released 2026-10-23; $2/$10 per 1M tokens vs K3's $3/$15, per Moonshot's published list). The id was not verified live against the production key from the session, so every Kimi call (both agent loops in `core.py`, `KimiProvider`, the curriculum Coach/quiz) goes through `model_router.kimi_create_with_fallback()`, which retries once on `kimi-k3` if Moonshot refuses the model id. If the server log shows `falling back to kimi-k3`, the key isn't enabled for K3.1 Pro (Moonshot asks for a $1+ top-up). A `KIMI_MODEL` value in the server's `.env` still overrides the default. Guard: `tests/test_kimi_model_default.py`.

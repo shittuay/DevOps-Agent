@@ -1,7 +1,7 @@
 """
 DevOps Agent — Mode-Isolated System Prompts & Session Factory
 
-Provides hard-separated system prompts for SANDBOX vs REAL_AGENT modes so Kimi K3
+Provides hard-separated system prompts for SANDBOX vs REAL_AGENT modes so Kimi
 cannot bleed its "simulate freely" sandbox behaviour into live cloud operations.
 
 Also exposes:
