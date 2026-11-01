@@ -412,6 +412,46 @@ def logout():
     return redirect(url_for('.login'))
 
 
+@auth_bp.route('/api/account/delete', methods=['POST'])
+@login_required
+@limiter.limit("5 per hour")
+def api_delete_account():
+    """Permanently delete the signed-in account (Settings > Profile; required by the App Store).
+
+    Body: {"confirm": "DELETE", "password": "..."}. Accounts created through single sign-on
+    have no password the user knows, so they confirm by typing their email instead.
+    """
+    from services.account_deletion import AccountDeletionBlocked, blocking_reason, delete_account
+
+    data = request.get_json(silent=True) or {}
+    if (data.get('confirm') or '').strip() != 'DELETE':
+        return jsonify({'error': 'Type DELETE to confirm.'}), 400
+
+    user = current_user._get_current_object()
+    if user.sso_provider:
+        if (data.get('email') or '').strip().lower() != (user.email or '').lower():
+            return jsonify({'error': 'Type your email address to confirm.'}), 403
+    elif not _run_timing_safe_password_check(user, data.get('password') or ''):
+        return jsonify({'error': 'Incorrect password.'}), 403
+
+    reason = blocking_reason(user)
+    if reason:
+        return jsonify({'error': reason}), 409
+
+    user_id = user.id
+    try:
+        delete_account(user_id)
+    except AccountDeletionBlocked as exc:
+        return jsonify({'error': str(exc)}), 409
+    except Exception:
+        return jsonify({'error': 'Your account could not be deleted. Please try again or '
+                                 'contact support@devopsagent.io.'}), 500
+    security_logger.warning(f"Account deleted by owner: user {user_id}")
+    logout_user()
+    session.clear()
+    return jsonify({'success': True, 'redirect': url_for('.login')})
+
+
 @auth_bp.route('/forgot-password', methods=['GET', 'POST'])
 @limiter.limit("5 per hour")
 def forgot_password():

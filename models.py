@@ -2872,6 +2872,19 @@ class AppNotification(db.Model):
         return f'<AppNotification {self.id} user={self.user_id} read={self.read}>'
 
 
+class PushDevice(db.Model):
+    """An iPhone (the DevOps Agent iOS app) registered for push notifications via APNs."""
+    __tablename__ = 'push_devices'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    token = db.Column(db.String(200), unique=True, nullable=False)  # APNs device token (hex)
+    platform = db.Column(db.String(10), default='ios', nullable=False)
+    environment = db.Column(db.String(12), default='production', nullable=False)  # production | sandbox
+    created_at = db.Column(db.DateTime, default=utcnow)
+    last_seen_at = db.Column(db.DateTime, default=utcnow)
+
+
 class IncidentCorrelationGroup(db.Model):
     """Groups related incidents that fired within a short time window."""
     __tablename__ = 'incident_correlation_groups'

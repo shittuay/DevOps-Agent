@@ -570,7 +570,7 @@
     </div>
     <div class="sidebar-section">
       <div class="sidebar-heading">Account</div>
-      <a href="#billing" class="sidebar-link">Billing & Plans</a>
+      {% if not ios_app %}<a href="#billing" class="sidebar-link">Billing & Plans</a>{% endif %}
       <a href="#security" class="sidebar-link">Security & 2FA</a>
       <a href="#security" class="sidebar-link" style="padding-left:24px;font-size:13px;">↳ Lost authenticator access</a>
       <a href="#teams" class="sidebar-link">Teams</a>
@@ -700,7 +700,7 @@
       </table>
 
       <h3 class="subsection-title">Credits</h3>
-      <p>Each message deducts one credit. Your remaining credits are shown in the chat header. Free-tier users receive 20 credits per month. Paid plans include a monthly credit allocation — see the <a href="#billing" style="color:var(--orange2);text-decoration:none;">Billing</a> section for details.</p>
+      <p>Each message deducts one credit. Your remaining credits are shown in the chat header. Free-tier users receive 20 credits per month. {% if not ios_app %}Paid plans include a monthly credit allocation — see the <a href="#billing" style="color:var(--orange2);text-decoration:none;">Billing</a> section for details.{% endif %}</p>
     </section>
 
     <!-- Dashboard -->
@@ -1321,6 +1321,7 @@ Content-Type: application/json
 
     <div class="divider"></div>
 
+    {% if not ios_app %}
     <!-- Billing -->
     <section id="billing">
       <h2 class="section-title">Billing & Plans</h2>
@@ -1350,6 +1351,7 @@ Content-Type: application/json
 
       <p>Payments are processed securely via Stripe. Both USD and NGN currencies are supported — the currency is auto-detected from your location and can be manually toggled on the billing page.</p>
     </section>
+    {% endif %}
 
     <!-- Security -->
     <section id="security">
@@ -1478,7 +1480,11 @@ Content-Type: application/json
       <p>Credentials are stored encrypted in our database using AES-128 encryption. They are decrypted in memory only when a tool call needs them, and are never written to logs or included in AI model context.</p>
 
       <h3 class="subsection-title">What happens when I run out of credits?</h3>
+      {% if ios_app %}
+      <p>Credits refill every month. No charge is ever made automatically from the app.</p>
+      {% else %}
       <p>On the Free plan, you'll see an upgrade prompt when credits reach zero — no charge is made automatically. On paid plans, your subscription auto-renews monthly. You can also purchase credit packs any time from the Billing page.</p>
+      {% endif %}
 
       <h3 class="subsection-title">Does the agent have access to my data inside cloud resources (e.g. database contents, S3 file contents)?</h3>
       <p>No. The agent can list, describe, start, stop, and manage the lifecycle of cloud resources — but it does not read the contents of databases, S3 objects, or secrets stored in Secrets Manager unless you explicitly paste content into the chat.</p>

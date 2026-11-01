@@ -239,9 +239,13 @@ def delete_user(user_id):
     email = user.email
     user_id_deleted = user.id
 
-    # Delete user and cascade to related records
-    db.session.delete(user)
-    db.session.commit()
+    # The models have no ON DELETE rules, so db.session.delete(user) fails on Postgres for
+    # any user with data; delete_account walks the foreign keys instead.
+    from services.account_deletion import AccountDeletionBlocked, delete_account
+    try:
+        delete_account(user_id_deleted, by_admin=True)
+    except AccountDeletionBlocked as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 409
 
     logger.warning(
         f"User deleted: User {user_id_deleted} ({email}) deleted "

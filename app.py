@@ -137,6 +137,15 @@ CHAT_MAX_TURN_SECONDS = int(os.environ.get('CHAT_MAX_TURN_SECONDS', '840'))
 LOW_CREDIT_THRESHOLD = 5
 
 
+def _cloud_limit_error(limit):
+    """403 body for the cloud-account limit; no upgrade link inside the iPhone app."""
+    from services.app_client import is_ios_app
+    if is_ios_app():
+        return {'error': f'Cloud account limit reached ({limit}).'}
+    return {'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.',
+            'upgrade_url': '/billing'}
+
+
 def _low_credit_warning(credits_remaining):
     """A `low_credit_warning` payload when the balance is running low, else None."""
     if credits_remaining is None or credits_remaining > LOW_CREDIT_THRESHOLD:
@@ -400,6 +409,8 @@ app.register_blueprint(skills_bp)
 
 from routes.integrations import integrations_bp
 app.register_blueprint(integrations_bp)
+from routes.push import push_bp
+app.register_blueprint(push_bp)
 
 # Load built-in skills at import time — gunicorn never runs the __main__ block,
 # so loading there left the Skills feature empty in production. Passing `app`
@@ -482,6 +493,23 @@ status_service.set_email_service(email_service)
 # RBAC context processor - makes RBAC helpers available in all templates
 from services.rbac import RBACContext, get_user_role, user_has_permission, Permission
 from services.rbac import admin_required as _admin_required
+
+from services.app_client import blocked_in_app as _blocked_in_app, is_ios_app as _is_ios_app
+
+
+@app.context_processor
+def inject_app_client():
+    """`ios_app` is true inside the iPhone app, which shows no prices or billing."""
+    return {'ios_app': _is_ios_app()}
+
+
+@app.before_request
+def _no_billing_in_ios_app():
+    if _is_ios_app() and _blocked_in_app(request.path):
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'not_available_in_app'}), 404
+        return redirect('/settings')
+
 
 @app.context_processor
 def inject_rbac():
@@ -1609,6 +1637,8 @@ def _track_conversion(user_id: int, event_type: str, metadata: dict = None) -> N
 def index():
     """Show landing page for unauthenticated users, chat for authenticated."""
     if not current_user.is_authenticated:
+        if _is_ios_app():
+            return redirect(url_for('auth.login'))  # the landing page shows prices
         return render_template('landing.html')
     return redirect(url_for('chat'))
 
@@ -2107,7 +2137,7 @@ def aws_config():
     if not existing:
         allowed, current, limit = check_resource_limit(current_user.id, 'cloud_accounts')
         if not allowed:
-            return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
+            return jsonify(_cloud_limit_error(limit)), 403
 
     try:
         data = request.get_json() or {}
@@ -2272,7 +2302,7 @@ def azure_config():
     if not existing:
         allowed, current, limit = check_resource_limit(current_user.id, 'cloud_accounts')
         if not allowed:
-            return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
+            return jsonify(_cloud_limit_error(limit)), 403
 
     try:
         data = request.get_json() or {}
@@ -2342,7 +2372,7 @@ def gcp_config():
     if not existing:
         allowed, current, limit = check_resource_limit(current_user.id, 'cloud_accounts')
         if not allowed:
-            return jsonify({'error': f'Cloud account limit reached ({limit}). Upgrade your plan for more.', 'upgrade_url': '/billing'}), 403
+            return jsonify(_cloud_limit_error(limit)), 403
 
     try:
         data = request.get_json() or {}
@@ -2929,13 +2959,15 @@ def api_chat():
                 db.session.commit()
                 # Free-tier exhausted: return upgrade pitch as a normal response
                 return jsonify({
-                    'response': _generate_upgrade_pitch(subscription.current_period_end),
+                    'response': _generate_upgrade_pitch(subscription.current_period_end, in_app=_is_ios_app()),
                     'credits_remaining': 0,
                     'trial_ended': True,
                 })
             return jsonify({
                 'error': 'insufficient_credits',
-                'message': 'You have run out of credits. Please upgrade your plan or purchase more credits.',
+                'message': ('You have used this month\'s credits. They refill at the start of your next billing period.'
+                            if _is_ios_app() else
+                            'You have run out of credits. Please upgrade your plan or purchase more credits.'),
                 'credits_remaining': 0,
                 'tier': subscription.tier.to_dict() if subscription.tier else None
             }), 402  # Payment Required
@@ -3037,20 +3069,13 @@ def api_chat():
         if _cred_ctx:
             preferences_context = (preferences_context or '') + '\n\n' + _cred_ctx
 
-        # Build trial context for free-tier users
-        trial_context = None
-        if tier_name == 'free':
-            credits_left = CreditService.balance(current_user.id)
-            trial_context = (
-                f"PLAN CONTEXT: This user is on the Free plan with {credits_left} of their 20 monthly credits left; they refill each month. "
-                "They are experiencing the full DevOps agent with real tool execution. "
-            )
-            if credits_left <= 5:
-                trial_context += (
-                    "Their credits are running low. Naturally weave in a brief mention that they can "
-                    "upgrade to the Starter plan ($29/month) for 200 credits a month, or wait for next month's refill. "
-                    "Do NOT make this the focus -- still answer their question fully first."
-                )
+        # Plan context for the prompt (no upsell inside the iPhone app)
+        from services.app_client import is_ios_app, plan_context
+        trial_context = plan_context(
+            tier_name,
+            CreditService.balance(current_user.id) if tier_name == 'free' else 0,
+            is_ios_app(),
+        )
 
         # Inject mode prompt. Tool narrowing is NOT done here: passing a
         # tools_override (even a full-list one) makes core._maybe_select_tools
@@ -3560,7 +3585,7 @@ def api_chat_stream():
             if tier_name == 'free':
                 # Free-tier exhausted: stream the upgrade pitch as SSE
                 import json as _json_stream
-                pitch = _generate_upgrade_pitch(subscription.current_period_end)
+                pitch = _generate_upgrade_pitch(subscription.current_period_end, in_app=_is_ios_app())
                 def generate_pitch():
                     yield f"data: {_json_stream.dumps({'type': 'chunk', 'content': pitch})}\n\n"
                     yield f"data: {_json_stream.dumps({'type': 'done', 'credits_remaining': 0, 'trial_ended': True})}\n\n"
@@ -3714,21 +3739,11 @@ def api_chat_stream():
         if _cred_ctx:
             preferences_context = (preferences_context or '') + '\n\n' + _cred_ctx
 
-        # Build trial context for free-tier users
+        # Plan context for the prompt (no upsell inside the iPhone app)
         uid = current_user.id
-        trial_context = None
-        if tier_name == 'free':
-            credits_left = CreditService.balance(uid)
-            trial_context = (
-                f"PLAN CONTEXT: This user is on the Free plan with {credits_left} of their 20 monthly credits left; they refill each month. "
-                "They are experiencing the full DevOps agent with real tool execution. "
-            )
-            if credits_left <= 5:
-                trial_context += (
-                    "Their credits are running low. Naturally weave in a brief mention that they can "
-                    "upgrade to the Starter plan ($29/month) for 200 credits a month, or wait for next month's refill. "
-                    "Do NOT make this the focus -- still answer their question fully first."
-                )
+        from services.app_client import is_ios_app, plan_context
+        trial_context = plan_context(
+            tier_name, CreditService.balance(uid) if tier_name == 'free' else 0, is_ios_app())
 
         # Inject mode prompt. Tool narrowing happens inside the agent via
         # max_tools — see the matching comment on the non-streaming path above.

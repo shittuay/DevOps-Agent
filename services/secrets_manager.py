@@ -44,6 +44,11 @@ MANAGED_SECRET_KEYS = [
     'BREVO_API_KEY',
     'CREDENTIAL_ENCRYPTION_KEY',
     'GROQ_API_KEY',
+    # Apple push notifications for the iPhone app (services/push_service.py)
+    'APNS_KEY',
+    'APNS_KEY_ID',
+    'APNS_TEAM_ID',
+    'APNS_BUNDLE_ID',
     'MOONSHOT_API_KEY',
     'BASE_URL',
     'MCP_BASE_URL',

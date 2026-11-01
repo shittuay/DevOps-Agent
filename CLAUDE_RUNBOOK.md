@@ -4201,3 +4201,9 @@ Owner asked for the latest Kimi model. `DEFAULT_KIMI_MODEL` is now `kimi-k3.1-pr
 ## 2026-10-31: Deploys failing since the 2026-10-30 Dependabot bumps
 
 Every push to main from PR #297 onward passed CI but failed at "Deploy via AWS SSM", in about 20 seconds per attempt, so production stayed on PR #298's code (no Audit log fix, no email rewrite, no Kimi K3.1 Pro). #297 had bumped `Pillow` 12.3.0 → 13.0.0, and #302 bumped `dnspython` 2.8.0 → 2.9.0. Both new versions declare `requires_python >=3.11` on PyPI. CI tests on 3.11, so it passed; the server's pip refused, and `set -e` stopped the deploy. **Likely cause, not confirmed**: the job log (on GitHub's results host) and the SSM invocation output can't be read from a Claude session, and the platform DevOpsAgentRole has no `ssm:ListCommandInvocations`. Both pins were reverted to the last versions that deployed. To confirm, run `python3 --version` and `venv/bin/python --version` on the box. Lesson: CI's Python must match the server's, or a dependency bump can pass CI and still fail to deploy.
+
+## 2026-11-01: iPhone app groundwork (account deletion, app mode, push)
+
+Server-side prerequisites for an App Store submission, per the owner's plan (Capacitor, App Store only, no purchases in the app). See CLAUDE.md "iPhone app readiness". Gotchas met while building it:
+- `db.session.delete(user)` (what Admin › Delete user does) only works in SQLite tests because SQLite doesn't enforce foreign keys by default; on Postgres it fails for any user with a conversation. `services/account_deletion.py` deletes by walking the FK graph instead. Admin › Delete user now uses it too (`by_admin=True`).
+- SQLite ignores `PRAGMA foreign_keys=ON` inside an open transaction: commit first, then turn it on (`tests/test_account_deletion.py`'s `fk_checks` fixture).
