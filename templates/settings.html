@@ -62,6 +62,8 @@
         .account-facts div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); overflow-wrap: anywhere; }
         .account-facts span { color: var(--text-secondary); }
         .security-box { margin-top: 20px; padding: 18px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-secondary); }
+        .danger-zone { margin-top: 32px; border-color: var(--danger, #dc3545); }
+        .danger-zone h3 { margin: 0 0 8px; font-size: 1rem; }
         .security-box p { margin-top: 0; }
         .backup-codes-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 12px 0; }
         .backup-codes-grid div { font-family: 'IBM Plex Mono', monospace; text-align: center; padding: 8px; border: 1px solid var(--border-subtle); border-radius: 8px; letter-spacing: 1px; }
@@ -559,7 +561,7 @@
                 <a href="#learning" class="settings-tab" data-tab="learning"><i class="fa-solid fa-graduation-cap"></i> Learning</a>
                 <a href="#skills" class="settings-tab" data-tab="skills"><i class="fa-solid fa-wand-magic-sparkles"></i> Skills</a>
                 <a href="#api-keys" class="settings-tab" data-tab="api-keys"><i class="fa-solid fa-key"></i> API Keys</a>
-                <a href="/billing" class="settings-tab settings-tab-link"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+                {% if not ios_app %}<a href="/billing" class="settings-tab settings-tab-link"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits <i class="fa-solid fa-arrow-up-right-from-square"></i></a>{% endif %}
                 <a href="/organizations/" class="settings-tab settings-tab-link"><i class="fa-solid fa-users"></i> Teams <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
             </nav>
 
@@ -612,6 +614,33 @@
                     <div><span>Account ID</span>{{ user.id }}</div>
                     <div><span>Created</span>{{ user.created_at.strftime('%B %d, %Y') if user.created_at else 'N/A' }}</div>
                     {% if user.last_login %}<div><span>Last sign-in</span>{{ user.last_login.strftime('%B %d, %Y at %I:%M %p') }} UTC</div>{% endif %}
+                </div>
+
+                <div class="security-box danger-zone" id="deleteAccountBox">
+                    <h3>Delete account</h3>
+                    <p>This permanently deletes your account, chats, saved cloud connections, approvals and settings, and cancels any paid plan. It does not touch anything in your cloud accounts. This can't be undone.</p>
+                    <div id="deleteAccountAlert" class="settings-notice" style="display:none;"></div>
+                    <div id="deleteAccountForm" style="display:none;">
+                        {% if user.sso_provider %}
+                        <div class="form-group">
+                            <label for="deleteAccountEmail">Type your email address</label>
+                            <input type="email" id="deleteAccountEmail" autocomplete="off">
+                        </div>
+                        {% else %}
+                        <div class="form-group">
+                            <label for="deleteAccountPassword">Password</label>
+                            <input type="password" id="deleteAccountPassword" autocomplete="current-password">
+                        </div>
+                        {% endif %}
+                        <div class="form-group">
+                            <label for="deleteAccountConfirm">Type DELETE to confirm</label>
+                            <input type="text" id="deleteAccountConfirm" autocomplete="off" autocapitalize="characters">
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn-danger" id="deleteAccountBtn" onclick="deleteAccount()">Delete my account</button>
+                        <button type="button" class="btn-secondary" id="deleteAccountCancel" style="display:none;" onclick="deleteAccountCancel()">Cancel</button>
+                    </div>
                 </div>
             </div>
 
@@ -2482,6 +2511,49 @@
             btn.textContent = doneText;
             secAlert('Network error. Please try again.', false);
         });
+    }
+    function deleteAccountCancel() {
+        document.getElementById('deleteAccountForm').style.display = 'none';
+        document.getElementById('deleteAccountCancel').style.display = 'none';
+        document.getElementById('deleteAccountAlert').style.display = 'none';
+    }
+    async function deleteAccount() {
+        const form = document.getElementById('deleteAccountForm');
+        const alertBox = document.getElementById('deleteAccountAlert');
+        const btn = document.getElementById('deleteAccountBtn');
+        if (form.style.display === 'none') {
+            form.style.display = 'block';
+            document.getElementById('deleteAccountCancel').style.display = '';
+            return;
+        }
+        const pw = document.getElementById('deleteAccountPassword');
+        const em = document.getElementById('deleteAccountEmail');
+        const body = {confirm: document.getElementById('deleteAccountConfirm').value.trim()};
+        if (pw) body.password = pw.value;
+        if (em) body.email = em.value;
+        btn.disabled = true;
+        btn.textContent = 'Deleting...';
+        try {
+            const resp = await fetch('/api/account/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (resp.ok && data.success) {
+                window.location.href = data.redirect || '/login';
+                return;
+            }
+            alertBox.className = 'settings-notice err';
+            alertBox.textContent = data.error || 'Your account could not be deleted. Please try again.';
+            alertBox.style.display = 'block';
+        } catch (e) {
+            alertBox.className = 'settings-notice err';
+            alertBox.textContent = 'Could not reach the server. Please try again.';
+            alertBox.style.display = 'block';
+        }
+        btn.disabled = false;
+        btn.textContent = 'Delete my account';
     }
     function secDisable() {
         secPost('/api/2fa/disable', document.getElementById('disable2faPassword').value,

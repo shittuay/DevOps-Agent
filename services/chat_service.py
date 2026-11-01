@@ -82,11 +82,12 @@ GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'
 GROQ_FALLBACK_MAX_TOKENS = 4096
 
 
-def generate_upgrade_pitch(refills_at=None) -> str:
+def generate_upgrade_pitch(refills_at=None, in_app: bool = False) -> str:
     """Markdown shown when a Free-plan user has used this month's 20 credits.
 
     The Free plan refills every month (decided 2026-10-14); this used to call it a
-    one-time trial that had "ended".
+    one-time trial that had "ended". Inside the iPhone app (``in_app``) it only says when
+    the credits refill: the app shows no plans, prices or upgrade links (App Store rules).
     """
     from services.subscription_tiers import TIER_DEFINITIONS
     starter = next((t for t in TIER_DEFINITIONS if t['name'] == 'starter'), None)
@@ -96,7 +97,7 @@ def generate_upgrade_pitch(refills_at=None) -> str:
         "",
         f"Your 20 free credits refill{when}. Your conversations and settings are saved.",
     ]
-    if starter:
+    if starter and not in_app:
         lines += [
             "",
             "### Want to keep going now?",

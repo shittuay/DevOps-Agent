@@ -2470,6 +2470,46 @@ users with a cloud account only). One unsubscribe link (`/email/unsubscribe`, se
   AWS-only. Cost savings are labelled estimates.
 - Guard: `tests/test_marketing_emails_honest.py` (banned phrases, plan table, summary states).
 
+### iPhone app readiness (2026-11-01, owner request: App Store)
+
+Plan agreed with the owner: a Capacitor iOS app around the site, App Store only, **no buying in
+the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the server side:
+- **Account deletion** (Apple 5.1.1(v)): Settings > Profile > "Delete account" →
+  `POST /api/account/delete` (`routes/auth.py`) with `{"confirm": "DELETE", "password"}` (SSO
+  accounts type their email instead). `services/account_deletion.py` cancels the Stripe
+  subscription first (a failed cancel keeps the account), then deletes the user and everything
+  they own **by walking the live FK graph**: the models have ~65 references to `users.id` and no
+  ON DELETE rules, so `db.session.delete(user)` fails on Postgres. Owner columns (`user_id`,
+  `owner_id`, `requester_id`, `created_by`) delete; other references (`approver_id`,
+  `invited_by`...) are set to NULL so other users' rows survive. Refused for platform admins and
+  for owners of a team that has other members. A new table that references users is covered
+  automatically. Guard: `tests/test_account_deletion.py` (runs with SQLite FK checks on).
+- **App mode** (`services/app_client.py`): the app adds `DevOpsAgentiOS` to its user agent
+  (`appendUserAgent` in capacitor.config). Then `ios_app` is true in every template: billing
+  links, the trial-ended "Starter $29" button, the credits badge link, the docs Billing section
+  and the landing page are hidden; `/billing` and the checkout/price APIs
+  (`BLOCKED_IN_APP_PREFIXES`) redirect or 404; the out-of-credits message only says when credits
+  refill; and the agent's prompt gets `IN_APP_PLAN_RULE` (no prices, plans or "pay elsewhere").
+  The marker decides display only, it is not security. **Any new price, plan name, upgrade
+  prompt or `/billing` link in a signed-in page needs an `ios_app` check.** Guard:
+  `tests/test_ios_app_mode.py`.
+- **Push notifications** (`services/push_service.py`, `routes/push.py`, model `PushDevice`):
+  the app registers its APNs token with `POST /api/push/devices` (`DELETE` on sign-out; a token
+  moves to whoever signed in last). Filing an `ApprovalRequest` pushes to the requester
+  (self-confirm) or the eligible approvers, from `approval_service._notify_*`. The notification
+  carries the tool name and risk level only, never arguments (it goes through Apple and shows
+  on the lock screen); `approval_id` and `link` ride along for the app, category
+  `APPROVAL_REQUEST`. Needs `APNS_KEY` (the .p8 text, or `APNS_KEY_PATH`), `APNS_KEY_ID`,
+  `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (all in `MANAGED_SECRET_KEYS`); without them sending is a
+  no-op. APNs is HTTP/2-only, hence `h2`/`hpack`/`hyperframe` pins. Guard:
+  `tests/test_push_notifications.py`.
+- **The production server runs Python 3.10** (inferred: Pillow 12.3 and dnspython 2.8, both
+  `>=3.10`, install; Pillow 13 and dnspython 2.9, `>=3.11`, broke every deploy 2026-10-30/31).
+  CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
+
+Next steps (not done): the Capacitor project (`ios/`), Face ID, the share sheet, the notification
+"Confirm" action, App Store listing (privacy policy, privacy labels, reviewer demo account).
+
 ### npm package `@devopsagent/mcp-server` (`mcp/`)
 
 A ~85-line stdio bridge (`mcp/bin/server.js`) that forwards JSON-RPC to

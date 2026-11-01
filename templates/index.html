@@ -2241,7 +2241,7 @@
                     <div id="learningBadge" class="learning-badge" style="display:none;">
                         <span id="learningBadgeText">Learning</span><span id="sandboxBadgeTag"></span>
                     </div>
-                    <div id="credits-badge" onclick="window.location.href='/billing'" title="Click to view billing">
+                    <div id="credits-badge" {% if ios_app %}title="Credits left this month"{% else %}onclick="window.location.href='/billing'" title="Click to view billing"{% endif %}>
                         <i class="fa-solid fa-coins"></i> <span id="credits-count">{{ initial_credits if initial_credits is defined else '--' }}</span> credits
                     </div>
                     <!-- Notification bell -->
@@ -2282,9 +2282,11 @@
                             <div class="dropdown-item" onclick="window.location.href='/settings'">
                                 <i class="fa-solid fa-gear"></i> Settings
                             </div>
+                            {% if not ios_app %}
                             <div class="dropdown-item" onclick="window.location.href='/billing'">
                                 <i class="fa-solid fa-credit-card"></i> Billing &amp; Credits
                             </div>
+                            {% endif %}
                             <div class="dropdown-item" onclick="openContactModal(); toggleMenu();">
                                 <i class="fa-solid fa-envelope"></i> Contact us
                             </div>
@@ -2398,6 +2400,7 @@
     </div>
 
     <script>
+        const IOS_APP = {{ 'true' if ios_app else 'false' }};  // iPhone app: no prices or billing links
         let isProcessing = false;
         let currentModelProvider = null;
 
@@ -2844,11 +2847,11 @@
                         if (data.trial_ended) {
                             const ctaDiv = document.createElement('div');
                             ctaDiv.className = 'trial-ended-banner';
-                            ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Keep going now: Starter &mdash; $29/month</a>';
+                            if (!IOS_APP) ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Keep going now: Starter &mdash; $29/month</a>';
                             textDiv.parentElement.appendChild(ctaDiv);
                             const _inp = document.getElementById('messageInput');
                             const _btn = document.getElementById('sendButton');
-                            if (_inp) { _inp.disabled = true; _inp.placeholder = 'Free credits used for this month — they refill next month, or upgrade'; }
+                            if (_inp) { _inp.disabled = true; _inp.placeholder = IOS_APP ? 'Free credits used for this month — they refill next month' : 'Free credits used for this month — they refill next month, or upgrade'; }
                             if (_btn) _btn.disabled = true;
                         }
                         markWorkflowExecution('completed');
@@ -2955,11 +2958,11 @@
                                 if (evt.trial_ended) {
                                     const ctaDiv = document.createElement('div');
                                     ctaDiv.className = 'trial-ended-banner';
-                                    ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Keep going now: Starter &mdash; $29/month</a>';
+                                    if (!IOS_APP) ctaDiv.innerHTML = '<a href="/billing" class="upgrade-cta">Keep going now: Starter &mdash; $29/month</a>';
                                     textDiv.parentElement.appendChild(ctaDiv);
                                     const input = document.getElementById('messageInput');
                                     const sendBtn = document.getElementById('sendButton');
-                                    if (input) { input.disabled = true; input.placeholder = 'Free credits used for this month — they refill next month, or upgrade'; }
+                                    if (input) { input.disabled = true; input.placeholder = IOS_APP ? 'Free credits used for this month — they refill next month' : 'Free credits used for this month — they refill next month, or upgrade'; }
                                     if (sendBtn) sendBtn.disabled = true;
                                 }
                                 loadConversations();
@@ -3613,7 +3616,9 @@
             if (!w || w.credits_remaining == null) return;
             if (_lastLowCreditWarned === w.credits_remaining) return;
             _lastLowCreditWarned = w.credits_remaining;
-            if (typeof showToast === 'function') showToast(w.message, 'info');
+            const n = w.credits_remaining;
+            const msg = IOS_APP ? `You have ${n} credit${n === 1 ? '' : 's'} left this month. Each message costs 1.` : w.message;
+            if (typeof showToast === 'function') showToast(msg, 'info');
         }
 
         // Contact Widget Functions

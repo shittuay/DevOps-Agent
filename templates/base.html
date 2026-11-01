@@ -659,7 +659,7 @@
                             <button type="button" class="theme-choice-btn" data-theme="dark"><i class="fa-solid fa-moon"></i> Dark</button>
                         </div>
                         <a role="menuitem" href="/settings"{% if request.path.startswith('/settings') %} class="active"{% endif %}><i class="fa-solid fa-gear"></i> Settings</a>
-                        <a role="menuitem" href="/billing"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits</a>
+                        {% if not ios_app %}<a role="menuitem" href="/billing"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits</a>{% endif %}
                         <a role="menuitem" href="/organizations/"><i class="fa-solid fa-users"></i> Teams</a>
                         <a role="menuitem" href="/logout" class="account-menu-logout"><i class="fa-solid fa-right-from-bracket"></i> Log out</a>
                     </div>

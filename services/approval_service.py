@@ -275,6 +275,15 @@ def _notify_requester_to_confirm(req):
         link='/approvals/mine',
     ))
     db.session.commit()
+    _push(req, [req.requester_id], self_confirm=True)
+
+
+def _push(req, user_ids, self_confirm):
+    try:
+        from services.push_service import notify_approval
+        notify_approval(req, user_ids, self_confirm)
+    except Exception as e:  # a phone notification must never block filing the request
+        logger.warning(f"Push notification for approval {req.id} failed: {e}")
 
 
 def _notify_approvers(req):
@@ -290,6 +299,7 @@ def _notify_approvers(req):
 
     requester_name = req.requester.username if req.requester else f"User {req.requester_id}"
     email_svc = EmailService()
+    _push(req, [a.id for a in approvers], self_confirm=False)
 
     for approver in approvers:
         notif = AppNotification(

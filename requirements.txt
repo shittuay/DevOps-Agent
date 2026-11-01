@@ -36,6 +36,9 @@ anthropic==0.72.0
 openai==2.45.0
 requests==2.33.0
 urllib3==2.8.0
+h2==4.4.1  # HTTP/2 for Apple push notifications (APNs only speaks HTTP/2); needs Python >=3.10
+hpack==4.2.0
+hyperframe==6.1.0
 certifi==2026.10.23
 
 # AWS SDK
