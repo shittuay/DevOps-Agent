@@ -36,9 +36,16 @@ billing_bp = Blueprint('billing', __name__)
 # ==================== HELPERS ====================
 
 
+def _attached(rows) -> bool:
+    """False if any cached ORM row has left its session (g can outlive one: shared test contexts)."""
+    from sqlalchemy import inspect as sa_inspect
+    return all(not sa_inspect(r).detached for r in rows)
+
+
 def _get_active_tiers():
     """Get active subscription tiers, cached per-request in Flask g."""
-    if not hasattr(g, '_cached_tiers'):
+    cached = getattr(g, '_cached_tiers', None)
+    if cached is None or not _attached(cached):
         g._cached_tiers = SubscriptionTier.query.filter_by(is_active=True).all()
     return g._cached_tiers
 
@@ -52,7 +59,8 @@ def _get_ngn_prices():
 
 def _get_pack_configs():
     """Get credit pack config dict {product_key: NGNPriceConfig}, cached per-request in Flask g."""
-    if not hasattr(g, '_cached_pack_configs'):
+    cached = getattr(g, '_cached_pack_configs', None)
+    if cached is None or not _attached(cached.values()):
         rows = NGNPriceConfig.query.filter_by(product_type='credit_pack', is_active=True).all()
         g._cached_pack_configs = {r.product_key: r for r in rows}
     return g._cached_pack_configs
