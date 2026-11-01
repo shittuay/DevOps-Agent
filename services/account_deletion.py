@@ -100,7 +100,11 @@ def delete_account(user_id: int, by_admin: bool = False) -> None:
     _cancel_stripe_subscription(user_id)
 
     users = User.__table__
-    db.session.expunge_all()  # ORM copies of these rows must not be flushed or reloaded later
+    # ORM copies of the rows being deleted must not be flushed or reloaded later. Only those:
+    # expunging everything detaches shared objects (cached plan tiers) other code still uses.
+    for obj in list(db.session.identity_map.values()):
+        if obj is user or getattr(obj, 'user_id', None) == user_id:
+            db.session.expunge(obj)
     try:
         _delete_where(db.session, db.metadata, users, users.c.id == user_id)
         db.session.commit()
