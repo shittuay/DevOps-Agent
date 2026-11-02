@@ -1,0 +1,26 @@
+{
+  "appId": "io.devopsagent.app",
+  "appName": "DevOps Agent",
+  "webDir": "www",
+  "appendUserAgent": "DevOpsAgentiOS/1.0",
+  "backgroundColor": "#0a0a0a",
+  "server": {
+    "url": "https://devopsagent.io/chat",
+    "errorPath": "offline.html"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "scheme": "DevOps Agent"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "launchAutoHide": true,
+      "backgroundColor": "#0a0a0a",
+      "showSpinner": false
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

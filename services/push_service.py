@@ -126,6 +126,14 @@ def send_now(user_ids: Iterable[int], payload: dict) -> int:
         for device in devices:
             try:
                 reason = _send(client, cfg, device.token, device.environment, payload)
+                if reason == 'BadDeviceToken':
+                    # Xcode builds get sandbox tokens, TestFlight/App Store builds production
+                    # ones, and the app can't tell which it is. Try the other APNs host once
+                    # and remember the one that works.
+                    other = 'sandbox' if device.environment == 'production' else 'production'
+                    if _send(client, cfg, device.token, other, payload) is None:
+                        device.environment = other
+                        reason = None
             except Exception as exc:  # network trouble must never break the caller
                 logger.warning('APNs send failed for device %s: %s', device.id, type(exc).__name__)
                 continue
