@@ -5,12 +5,15 @@
   "appendUserAgent": "DevOpsAgentiOS/1.0",
   "backgroundColor": "#0a0a0a",
   "server": {
-    "url": "https://devopsagent.io/chat",
+    "url": "https://devopsagent.io",
+    "appStartPath": "/chat",
+    "allowNavigation": [
+      "devopsagent.io"
+    ],
     "errorPath": "offline.html"
   },
   "ios": {
-    "contentInset": "automatic",
-    "scheme": "DevOps Agent"
+    "contentInset": "automatic"
   },
   "plugins": {
     "SplashScreen": {
@@ -20,7 +23,11 @@
       "showSpinner": false
     },
     "PushNotifications": {
-      "presentationOptions": ["badge", "sound", "alert"]
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
     }
   }
 }

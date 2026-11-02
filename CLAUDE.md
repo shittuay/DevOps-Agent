@@ -2508,8 +2508,11 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
 
 Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
-exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/chat`
-(`server.url`, with `www/offline.html` as `errorPath`) and appends `DevOpsAgentiOS/1.0` to the
+exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io` +
+`appStartPath` `/chat` (`server.url`, with `www/offline.html` as `errorPath`). **`server.url` must
+have no path:** Capacitor keeps a page in the app only if its URL starts with `server.url` (or its
+host is in `allowNavigation`) and opens everything else in Safari. With `/chat` in it, the redirect
+to /login left the app, so the site ran in Safari with no native features (2026-11-02) and appends `DevOpsAgentiOS/1.0` to the
 user agent, which is what turns on app mode server-side. `mobile/README.md` has the Xcode,
 TestFlight and App Store steps. Native features run from **`static/js/native_app.js`**, part of
 the website, loaded only when `ios_app` and inert without the native bridge:

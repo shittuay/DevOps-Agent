@@ -120,7 +120,13 @@ def test_app_shell_config_matches_the_server():
     cfg = json.loads((ROOT / 'mobile' / 'capacitor.config.json').read_text())
     assert cfg['appId'] == 'io.devopsagent.app'
     assert cfg['appendUserAgent'].startswith(IOS_APP_UA_MARKER), 'app mode depends on this marker'
-    assert cfg['server']['url'].startswith('https://devopsagent.io/')
+    # Capacitor treats a page as part of the app only if its URL starts with server.url, and
+    # opens anything else in Safari. With '/chat' in it, /login and every other page left the
+    # app (first simulator run, 2026-11-02), so the native features never ran.
+    assert cfg['server']['url'] == 'https://devopsagent.io', 'no path: see comment'
+    assert cfg['server']['appStartPath'] == '/chat'
+    assert 'devopsagent.io' in cfg['server']['allowNavigation']
+    assert 'scheme' not in cfg.get('ios', {}), "ios.scheme is the Xcode scheme ('App')"
     pkg = json.loads((ROOT / 'mobile' / 'package.json').read_text())
     for section in ('dependencies', 'devDependencies'):
         for name, version in pkg[section].items():
