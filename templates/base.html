@@ -720,6 +720,6 @@
         });
     })();
     </script>
-{% if ios_app %}<script src="{{ url_for('static', filename='js/native_app.js') }}" defer></script>{% endif %}
+{% if ios_app %}<script src="{{ url_for('static', filename='js/vendor/capacitor-8.5.3.js') }}" defer></script><script src="{{ url_for('static', filename='js/native_app.js') }}" defer></script>{% endif %}
 </body>
 </html>

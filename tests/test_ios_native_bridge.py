@@ -108,7 +108,9 @@ def test_does_nothing_in_a_browser():
 def test_script_is_only_loaded_in_the_app_and_logout_is_marked():
     for name in ('base.html', 'index.html'):
         html = (ROOT / 'templates' / name).read_text()
-        assert "{% if ios_app %}<script src=\"{{ url_for('static', filename='js/native_app.js') }}\"" in html
+        runtime = "{% if ios_app %}<script src=\"{{ url_for('static', filename='js/vendor/capacitor-8.5.3.js') }}\" defer></script>"
+        assert runtime + "<script src=\"{{ url_for('static', filename='js/native_app.js') }}\"" in html, \
+            'the Capacitor runtime must load right before native_app.js, in the app only'
         assert 'data-signed-in=' in html
     assert 'data-logout' in (ROOT / 'templates' / 'index.html').read_text()
 
@@ -128,3 +130,21 @@ def test_app_shell_config_matches_the_server():
     delegate = (ROOT / 'mobile' / 'ios' / 'App' / 'App' / 'AppDelegate.swift').read_text()
     assert 'capacitorDidRegisterForRemoteNotifications' in delegate
     assert 'aps-environment' in (ROOT / 'mobile' / 'ios' / 'App' / 'App' / 'App.entitlements').read_text()
+
+
+def test_capacitor_runtime_is_vendored_at_the_app_version_and_adds_register_plugin():
+    """iOS injects a bridge without registerPlugin; without the runtime every native feature
+    silently turned off (found on the first simulator run, 2026-11-01)."""
+    pkg = json.loads((ROOT / 'mobile' / 'package.json').read_text())
+    version = pkg['dependencies']['@capacitor/core']
+    runtime = ROOT / 'static' / 'js' / 'vendor' / f'capacitor-{version}.js'
+    assert runtime.exists(), 'vendor the @capacitor/core runtime matching mobile/package.json'
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('node is not installed')
+    js = ("global.window = globalThis; window.Capacitor = {isNativePlatform: () => true};"
+          + runtime.read_text()
+          + ";console.log(typeof window.Capacitor.registerPlugin)")
+    out = subprocess.run([node, '-e', js], capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip().splitlines()[-1] == 'function'
