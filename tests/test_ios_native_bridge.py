@@ -124,7 +124,10 @@ def test_app_shell_config_matches_the_server():
     # opens anything else in Safari. With '/chat' in it, /login and every other page left the
     # app (first simulator run, 2026-11-02), so the native features never ran.
     assert cfg['server']['url'] == 'https://devopsagent.io', 'no path: see comment'
-    assert cfg['server']['appStartPath'] == '/chat'
+    # No appStartPath: Capacitor requires it to exist as a bundled file (public/<path>) even
+    # with server.url, and refuses to start otherwise. '/' already sends the app to sign-in
+    # or to chat (app.index).
+    assert 'appStartPath' not in cfg['server']
     assert 'devopsagent.io' in cfg['server']['allowNavigation']
     assert 'scheme' not in cfg.get('ios', {}), "ios.scheme is the Xcode scheme ('App')"
     pkg = json.loads((ROOT / 'mobile' / 'package.json').read_text())
