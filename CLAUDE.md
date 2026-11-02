@@ -2420,6 +2420,10 @@ policy and ask the account owner yes/no, then retry. `services/aws_permissions.p
   wildcards are the only ones `is_sensitive()` accepts; identity prefixes never get bundles.
 - **Retry:** up to 3 tries (`RETRY_DELAYS`, IAM propagation). A different denied action on
   retry files a follow-up request (`next_permission_request`).
+- **The card's tip matches the refused action (2026-11-02):** a refused write says the Read level
+  only looks and suggests Manage; a refused read says Read covers it (`describe()` via
+  `_is_write_action`). It used to say Read or Manage "can already read or manage every AWS
+  service", which told a Read-level user creates would rarely be refused.
 - **Access-level hint (2026-10-19):** from the second distinct *write* permission a user is
   refused within 6 hours, `access_level_hint()` adds `access_level_hint` to the model's note,
   telling it to suggest switching the stack to `PolicyLevel=Manage` once instead of filing

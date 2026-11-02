@@ -264,3 +264,35 @@ def test_bundles_never_widen_writes_or_identity():
     assert ap.build_policy('iam:ListRoles')['Statement'][0]['Action'] == ['iam:ListRoles']
     for a in ('ec2:*', 's3:Get*', 'iam:List*', 'secretsmanager:GetSecretValue'):
         assert ap.is_sensitive(a), a
+
+
+def _describe_for(action):
+    from services.aws_permissions import build_policy, describe
+    return describe({'action': action, 'original_tool': 'some_tool', 'resource': '*',
+                     'policy': build_policy(action), 'mode': 'manual', 'sensitive': False})
+
+
+def test_tip_names_manage_for_a_refused_write_and_read_for_a_refused_read():
+    """'Read or Manage can already read or manage everything' told a Read-level user that a
+    refused create would rarely happen (2026-11-02)."""
+    write = _describe_for('s3:CreateBucket')
+    assert "'Manage' access level" in write and 'already covers' not in write
+    read = _describe_for('guardduty:ListDetectors')
+    assert "'Read' access level already covers reading" in read and "'Manage'" not in read
+
+
+def test_reminder_has_a_single_full_stop(app, db_session):
+    from models import AppNotification, User, db
+    from services import approval_service
+    u = User(email='tip-dot@example.com', username='tip_dot', email_verified=True)
+    u.set_password('Password123!x')
+    db.session.add(u)
+    db.session.commit()
+    req = approval_service.create_request('delete_vpc', {'vpc_id': 'vpc-1'}, 'high',
+                                          'Ends with a full stop.', u.id)
+    note = AppNotification.query.filter_by(user_id=u.id).order_by(AppNotification.id.desc()).first()
+    assert note is not None and '..' not in note.body
+    AppNotification.query.filter_by(user_id=u.id).delete()
+    db.session.delete(req)
+    db.session.delete(u)
+    db.session.commit()
