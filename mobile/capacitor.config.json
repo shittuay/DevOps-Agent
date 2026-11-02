@@ -6,7 +6,6 @@
   "backgroundColor": "#0a0a0a",
   "server": {
     "url": "https://devopsagent.io",
-    "appStartPath": "/chat",
     "allowNavigation": [
       "devopsagent.io"
     ],

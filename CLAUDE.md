@@ -2508,8 +2508,10 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
 
 Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
-exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io` +
-`appStartPath` `/chat` (`server.url`, with `www/offline.html` as `errorPath`). **`server.url` must
+exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/` (`server.url`, with `www/offline.html` as `errorPath`);
+`app.index` sends the app to sign-in or chat. **Don't set `server.appStartPath`:** Capacitor
+requires it to exist as a bundled file (`public/<path>`) even with `server.url`, and shows the
+error page otherwise (2026-11-02). **`server.url` must
 have no path:** Capacitor keeps a page in the app only if its URL starts with `server.url` (or its
 host is in `allowNavigation`) and opens everything else in Safari. With `/chat` in it, the redirect
 to /login left the app, so the site ran in Safari with no native features (2026-11-02) and appends `DevOpsAgentiOS/1.0` to the
