@@ -2523,6 +2523,12 @@ The app always registers as `production`. On `BadDeviceToken`, `push_service.sen
 the other APNs host and remembers it, so Xcode (sandbox) and TestFlight builds both work.
 Templates mark `<body data-signed-in>` so the app only asks for notifications after sign-in.
 Guard: `tests/test_ios_native_bridge.py` (runs the script in node with a fake bridge).
+**The bridge iOS injects into the page has no `registerPlugin`.** It comes from Capacitor's JS
+runtime, vendored at `static/js/vendor/capacitor-<version>.js` (copied from
+`mobile/node_modules/@capacitor/core/dist/capacitor.js`) and loaded just before
+`native_app.js`. Without it every native feature was silently off (first simulator run,
+2026-11-01). **When bumping `@capacitor/core` in `mobile/package.json`, re-copy the runtime
+under the new version name and update both templates**; the test fails otherwise.
 **Not yet built on a real device** (generated on Linux); Capacitor documents `server.url` as not
 for production and Apple's 4.2 "just a website" rule is the main review risk.
 Still to do: App Store listing (privacy policy, privacy answers, screenshots, reviewer account).
