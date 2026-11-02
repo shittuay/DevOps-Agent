@@ -2507,8 +2507,25 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   `>=3.10`, install; Pillow 13 and dnspython 2.9, `>=3.11`, broke every deploy 2026-10-30/31).
   CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
 
-Next steps (not done): the Capacitor project (`ios/`), Face ID, the share sheet, the notification
-"Confirm" action, App Store listing (privacy policy, privacy labels, reviewer demo account).
+Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
+exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/chat`
+(`server.url`, with `www/offline.html` as `errorPath`) and appends `DevOpsAgentiOS/1.0` to the
+user agent, which is what turns on app mode server-side. `mobile/README.md` has the Xcode,
+TestFlight and App Store steps. Native features run from **`static/js/native_app.js`**, part of
+the website, loaded only when `ios_app` and inert without the native bridge:
+- push: registers the APNs token with `/api/push/devices` (once per token), opens the
+  notification's `link` on tap (same-site paths only), unregisters on Log out (`a[href="/logout"]`
+  or `[data-logout]`);
+- Face ID: wraps `window.fetch`, so a POST to `/api/(approvals|changes)/<id>/(confirm|approve)`
+  first asks for Face ID or the passcode; cancelling a request never asks;
+- Share: adds a Share button to every `.message-actions` row.
+The app always registers as `production`. On `BadDeviceToken`, `push_service.send_now` retries
+the other APNs host and remembers it, so Xcode (sandbox) and TestFlight builds both work.
+Templates mark `<body data-signed-in>` so the app only asks for notifications after sign-in.
+Guard: `tests/test_ios_native_bridge.py` (runs the script in node with a fake bridge).
+**Not yet built on a real device** (generated on Linux); Capacitor documents `server.url` as not
+for production and Apple's 4.2 "just a website" rule is the main review risk.
+Still to do: App Store listing (privacy policy, privacy answers, screenshots, reviewer account).
 
 ### npm package `@devopsagent/mcp-server` (`mcp/`)
 

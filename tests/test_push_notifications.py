@@ -187,3 +187,32 @@ def test_account_deletion_removes_push_devices(app, db_session):
     db.session.commit()
     delete_account(uid)
     assert PushDevice.query.filter_by(user_id=uid).count() == 0
+
+
+def test_a_development_build_token_is_retried_on_the_sandbox_host(app, db_session, apns_env, fake_apns):
+    """The app always registers as 'production'; an Xcode build's token only works on sandbox."""
+    from models import PushDevice, User, db
+    user = _user(db, User, uuid.uuid4().hex[:8])
+    db.session.add(PushDevice(user_id=user.id, token=TOKEN, environment='production'))
+    db.session.commit()
+
+    def reply(url):
+        return _Resp(200) if 'sandbox' in url else _Resp(400, 'BadDeviceToken')
+
+    class Client(_FakeClient):
+        def post(self, url, json=None, headers=None):
+            _FakeClient.sent.append((url, json, headers))
+            return reply(url)
+
+    import httpx
+    old = httpx.Client
+    httpx.Client = Client
+    try:
+        assert ps.send_now([user.id], ps.build_payload('t', 'b')) == 1
+    finally:
+        httpx.Client = old
+    device = PushDevice.query.filter_by(token=TOKEN).first()
+    assert device is not None and device.environment == 'sandbox', 'kept, and remembered as sandbox'
+    PushDevice.query.filter_by(user_id=user.id).delete()
+    db.session.delete(user)
+    db.session.commit()

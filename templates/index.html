@@ -2165,7 +2165,7 @@
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
-<body>
+<body data-signed-in="{{ '1' if current_user.is_authenticated else '0' }}">
     <!-- Sidebar Overlay for Mobile -->
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
@@ -2304,7 +2304,7 @@
                             <div class="dropdown-item" onclick="showAbout(); toggleMenu();">
                                 <i class="fa-solid fa-circle-info"></i> About
                             </div>
-                            <div class="dropdown-item" onclick="window.location.href='/logout'">
+                            <div class="dropdown-item" data-logout onclick="window.location.href='/logout'">
                                 <i class="fa-solid fa-right-from-bracket"></i> Logout
                             </div>
                         </div>
@@ -4633,5 +4633,6 @@
         </div>
     </div>
 
+{% if ios_app %}<script src="{{ url_for('static', filename='js/native_app.js') }}" defer></script>{% endif %}
 </body>
 </html>
