@@ -10,8 +10,10 @@
  *     for Face ID (or the passcode). Cancelling a request is never gated.
  *  3. Share: a Share button next to Copy on the agent's replies.
  *
- * Native plugins are reached through window.Capacitor.registerPlugin(name), the bridge's
- * no-bundler API; the names match the native plugin ids in mobile/node_modules.
+ * Native plugins are reached through window.Capacitor.registerPlugin(name). The bridge iOS
+ * injects into the page has no registerPlugin; it comes from Capacitor's JS runtime
+ * (static/js/vendor/capacitor-<version>.js, same version as mobile/package.json), which the
+ * templates load just before this file. The names match the native plugin ids (jsName).
  */
 (function () {
     'use strict';
@@ -19,6 +21,10 @@
     var Cap = window.Capacitor;
     if (!Cap || typeof Cap.isNativePlatform !== 'function' || !Cap.isNativePlatform()) return;
 
+    if (typeof Cap.registerPlugin !== 'function') {
+        console.warn('DevOps Agent app: Capacitor runtime missing, native features are off');
+        return;
+    }
     function plugin(name) {
         try { return Cap.registerPlugin(name); } catch (e) { return null; }
     }
