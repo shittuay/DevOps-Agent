@@ -2536,7 +2536,11 @@ runtime, vendored at `static/js/vendor/capacitor-<version>.js` (copied from
 under the new version name and update both templates**; the test fails otherwise.
 **Not yet built on a real device** (generated on Linux); Capacitor documents `server.url` as not
 for production and Apple's 4.2 "just a website" rule is the main review risk.
-Still to do: App Store listing (privacy policy, privacy answers, screenshots, reviewer account).
+**Privacy policy** (`/privacy-policy`, rewritten 2026-11-02, operator Urgency LLC, contact
+support@devopsagent.io) lists every company the code sends data to and makes no claim the code
+doesn't back; Settings links to it. **When you add a third-party service that receives user data,
+add it to the table there** (`tests/test_privacy_policy.py` checks the list and banned claims).
+Still to do: App Store privacy answers, screenshots, reviewer account.
 
 ### npm package `@devopsagent/mcp-server` (`mcp/`)
 

@@ -4,545 +4,194 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy Policy - DevOps Agent</title>
+    <meta name="description" content="What DevOps Agent collects, why, who receives it, how long it is kept, and how to delete it.">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 40px 20px;
-            color: #333;
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            padding: 32px 16px 64px;
         }
-
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 50px;
-        }
-
-        h1 {
-            color: #667eea;
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-align: center;
-        }
-
-        .effective-date {
-            text-align: center;
-            color: #666;
-            font-size: 0.95em;
-            margin-bottom: 30px;
-            font-style: italic;
-        }
-
+        .page { max-width: 820px; margin: 0 auto; min-width: 0; }
+        .back { display: inline-block; margin-bottom: 24px; color: var(--text-secondary); text-decoration: none; font-size: 15px; }
+        .back:hover { color: var(--accent-primary); }
+        h1 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 34px; line-height: 1.2; margin-bottom: 8px; }
+        .date { color: var(--text-tertiary); font-size: 14px; margin-bottom: 28px; }
         h2 {
-            color: #667eea;
-            font-size: 1.8em;
-            margin-top: 40px;
-            margin-bottom: 15px;
-            border-bottom: 3px solid #667eea;
-            padding-bottom: 10px;
+            font-family: 'Syne', sans-serif; font-weight: 700; font-size: 22px;
+            margin: 40px 0 12px; padding-top: 20px; border-top: 1px solid var(--border-subtle);
         }
-
-        h3 {
-            color: #764ba2;
-            font-size: 1.3em;
-            margin-top: 25px;
-            margin-bottom: 10px;
+        h3 { font-size: 17px; font-weight: 600; margin: 20px 0 6px; }
+        p, li { font-size: 16px; color: var(--text-secondary); overflow-wrap: anywhere; }
+        p { margin-bottom: 12px; }
+        ul { margin: 0 0 14px 22px; }
+        li { margin-bottom: 6px; }
+        strong { color: var(--text-primary); }
+        a { color: var(--accent-primary); }
+        .summary {
+            background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+            border-radius: 14px; padding: 18px 20px; margin-bottom: 8px;
         }
-
-        p, li {
-            line-height: 1.8;
-            margin-bottom: 15px;
-            font-size: 1.05em;
-        }
-
-        ul {
-            margin-left: 25px;
-            margin-bottom: 20px;
-        }
-
-        .info-box {
-            background: #e3f2fd;
-            border-left: 5px solid #2196f3;
-            padding: 20px;
-            margin: 25px 0;
-            border-radius: 8px;
-        }
-
-        .warning-box {
-            background: #fff3cd;
-            border-left: 5px solid #ff9800;
-            padding: 20px;
-            margin: 25px 0;
-            border-radius: 8px;
-        }
-
-        .back-link {
-            display: inline-block;
-            margin-top: 30px;
-            padding: 12px 30px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 25px;
-            transition: all 0.3s;
-            font-weight: 600;
-        }
-
-        .back-link:hover {
-            background: #764ba2;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .footer-links {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 2px solid #eee;
-            text-align: center;
-        }
-
-        .footer-links a {
-            color: #667eea;
-            text-decoration: none;
-            margin: 0 15px;
-            font-weight: 600;
-        }
-
-        .footer-links a:hover {
-            text-decoration: underline;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-        }
-
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-
-        th {
-            background: #667eea;
-            color: white;
-            font-weight: 600;
-        }
-
-        tr:hover {
-            background: #f5f5f5;
+        .summary li { margin-bottom: 4px; }
+        .table-wrap { overflow-x: auto; margin: 8px 0 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 520px; }
+        th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+        th { color: var(--text-primary); font-weight: 600; background: var(--bg-secondary); }
+        @media (max-width: 480px) {
+            h1 { font-size: 28px; }
+            h2 { font-size: 20px; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔒 Privacy Policy</h1>
-        <p class="effective-date">Effective Date: January 1, 2025</p>
+<main class="page">
+    <a class="back" href="/">&larr; DevOps Agent</a>
+    <h1>Privacy Policy</h1>
+    <p class="date">Effective November 2, 2026</p>
 
-        <p><strong>DevOps Agent</strong> is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our service.</p>
+    <p>DevOps Agent (on the web at devopsagent.io and in the DevOps Agent iPhone app) is run by
+        <strong>Urgency LLC</strong> ("we", "us"). This policy explains what we collect, why, who receives it,
+        how long we keep it, and how to delete it. Questions: <a href="mailto:support@devopsagent.io">support@devopsagent.io</a>.</p>
 
-        <div class="info-box">
-            <p><strong>📌 Key Points:</strong></p>
-            <ul>
-                <li>We collect account information, usage data, and cloud credentials</li>
-                <li>Your data is encrypted and stored securely</li>
-                <li>We do NOT sell your personal information</li>
-                <li>You have rights to access, correct, and delete your data</li>
-                <li>This policy is GDPR and CCPA compliant</li>
-            </ul>
-        </div>
-
-        <h2>1. Information We Collect</h2>
-
-        <h3>1.1 Account Information</h3>
-        <p>When you create an account, we collect:</p>
+    <div class="summary">
         <ul>
-            <li><strong>Email address</strong> - for account identification and communication</li>
-            <li><strong>Username</strong> - for account identification</li>
-            <li><strong>Password</strong> - hashed using bcrypt (we never store plain-text passwords)</li>
-            <li><strong>Account creation date</strong> - for record keeping</li>
-            <li><strong>Last login information</strong> - for security monitoring</li>
+            <li>We collect what we need to run the service: your account, your chats with the agent, and the cloud and tool connections you add.</li>
+            <li>To answer you, your messages and the results of the agent's actions are sent to AI model providers (listed below).</li>
+            <li>We don't sell your data, show ads, or use advertising or analytics trackers.</li>
+            <li>Deleting your account deletes your data from our database.</li>
         </ul>
-
-        <h3>1.2 Usage Data</h3>
-        <p>When you use the Service, we automatically collect:</p>
-        <ul>
-            <li><strong>Commands and prompts</strong> - to process your requests</li>
-            <li><strong>API usage statistics</strong> - to track your credit consumption</li>
-            <li><strong>Chat history</strong> - to provide context for conversations</li>
-            <li><strong>Session data</strong> - for maintaining your login state</li>
-            <li><strong>IP addresses</strong> - for security and fraud prevention</li>
-            <li><strong>Browser and device information</strong> - for compatibility and optimization</li>
-        </ul>
-
-        <h3>1.3 Cloud Provider Credentials</h3>
-        <p>To manage your infrastructure, we store:</p>
-        <ul>
-            <li><strong>AWS Access Keys</strong> - encrypted before storage</li>
-            <li><strong>Azure Service Principals</strong> - encrypted before storage</li>
-            <li><strong>GCP Service Account Keys</strong> - encrypted before storage</li>
-            <li><strong>SSH Keys</strong> - encrypted before storage</li>
-        </ul>
-
-        <div class="warning-box">
-            <p><strong>⚠️ Security Note:</strong> All cloud credentials are encrypted using industry-standard encryption (AES-256) before being stored in our database. We use separate encryption keys that are securely managed and rotated regularly.</p>
-        </div>
-
-        <h3>1.4 Payment Information</h3>
-        <p>If you purchase credits or subscriptions:</p>
-        <ul>
-            <li><strong>Payment details are processed by Stripe</strong> - we do NOT store your credit card information</li>
-            <li>We receive only transaction confirmations and receipt information</li>
-            <li>Stripe complies with PCI-DSS standards</li>
-        </ul>
-
-        <h2>2. How We Use Your Information</h2>
-        <p>We use the collected information for:</p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Purpose</th>
-                    <th>Data Used</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <th scope="row"><strong>Service Provision</strong></th>
-                    <td>Account info, usage data, cloud credentials</td>
-                </tr>
-                <tr>
-                    <th scope="row"><strong>Authentication & Security</strong></th>
-                    <td>Email, password, IP address, login attempts</td>
-                </tr>
-                <tr>
-                    <th scope="row"><strong>Communication</strong></th>
-                    <td>Email address for service updates and support</td>
-                </tr>
-                <tr>
-                    <th scope="row"><strong>Billing & Credits</strong></th>
-                    <td>Usage data, payment information</td>
-                </tr>
-                <tr>
-                    <th scope="row"><strong>Service Improvement</strong></th>
-                    <td>Usage patterns, error logs, performance metrics</td>
-                </tr>
-                <tr>
-                    <th scope="row"><strong>Fraud Prevention</strong></th>
-                    <td>IP addresses, usage patterns, account activity</td>
-                </tr>
-                <tr>
-                    <th scope="row"><strong>Legal Compliance</strong></th>
-                    <td>All data as required by law</td>
-                </tr>
-            </tbody>
-        </table>
-
-        <h2>3. How We Share Your Information</h2>
-
-        <h3>3.1 Third-Party Service Providers</h3>
-        <p>We share data with trusted third parties who help us operate the Service:</p>
-
-        <div class="info-box">
-            <p><strong>Our Service Providers:</strong></p>
-            <ul>
-                <li><strong>Anthropic (Claude AI)</strong> - AI model provider for processing commands</li>
-                <li><strong>Cloud Providers (AWS, Azure, GCP)</strong> - Infrastructure hosting</li>
-                <li><strong>Stripe</strong> - Payment processing</li>
-                <li><strong>Database Hosting</strong> - Secure data storage</li>
-            </ul>
-            <p><strong>Note:</strong> These providers are contractually obligated to protect your data and use it only for the purposes we specify.</p>
-        </div>
-
-        <h3>3.2 When We DO NOT Share Your Data</h3>
-        <ul>
-            <li>❌ We do NOT sell your personal information to third parties</li>
-            <li>❌ We do NOT share your data for marketing purposes</li>
-            <li>❌ We do NOT provide your data to advertisers</li>
-            <li>❌ We do NOT share your cloud credentials with anyone</li>
-        </ul>
-
-        <h3>3.3 Legal Requirements</h3>
-        <p>We may disclose your information if required by law, such as:</p>
-        <ul>
-            <li>Compliance with legal process (subpoena, court order)</li>
-            <li>Enforcement of our Terms of Service</li>
-            <li>Protection of our rights, property, or safety</li>
-            <li>Prevention of fraud or illegal activity</li>
-        </ul>
-
-        <h2>4. Data Security</h2>
-
-        <h3>4.1 Security Measures We Implement</h3>
-        <ul>
-            <li>✅ <strong>Encryption at Rest</strong> - All data encrypted in our database (AES-256)</li>
-            <li>✅ <strong>Encryption in Transit</strong> - HTTPS/TLS for all communications</li>
-            <li>✅ <strong>Password Hashing</strong> - bcrypt with salt for password storage</li>
-            <li>✅ <strong>API Key Encryption</strong> - Cloud credentials encrypted separately</li>
-            <li>✅ <strong>Access Controls</strong> - Role-based access to infrastructure</li>
-            <li>✅ <strong>Account Lockout</strong> - Protection against brute force attacks</li>
-            <li>✅ <strong>Rate Limiting</strong> - Prevention of abuse and DDoS</li>
-            <li>✅ <strong>Security Logging</strong> - Monitoring and audit trails</li>
-            <li>✅ <strong>Regular Security Audits</strong> - Periodic vulnerability assessments</li>
-        </ul>
-
-        <div class="warning-box">
-            <p><strong>⚠️ Important Disclaimer:</strong> While we use industry-standard security measures, no method of transmission or storage is 100% secure. We cannot guarantee absolute security of your data. You transmit data to us at your own risk.</p>
-        </div>
-
-        <h3>4.2 Your Security Responsibilities</h3>
-        <p>To keep your account secure, you should:</p>
-        <ul>
-            <li>Use a strong, unique password</li>
-            <li>Never share your password with anyone</li>
-            <li>Enable two-factor authentication (if available)</li>
-            <li>Regularly review your account activity</li>
-            <li>Report suspicious activity immediately</li>
-            <li>Keep your cloud provider credentials secure</li>
-        </ul>
-
-        <h2>5. Data Retention</h2>
-        <p>We retain your data for different periods depending on the type:</p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Data Type</th>
-                    <th>Retention Period</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Account Information</td>
-                    <td>As long as your account is active</td>
-                </tr>
-                <tr>
-                    <td>Chat History</td>
-                    <td>Until you delete it or close your account</td>
-                </tr>
-                <tr>
-                    <td>Usage Logs</td>
-                    <td>90 days for operational purposes</td>
-                </tr>
-                <tr>
-                    <td>Security Logs</td>
-                    <td>1 year for security and compliance</td>
-                </tr>
-                <tr>
-                    <td>Payment Records</td>
-                    <td>7 years for tax and legal compliance</td>
-                </tr>
-                <tr>
-                    <td>Deleted Account Data</td>
-                    <td>Permanently deleted within 90 days</td>
-                </tr>
-            </tbody>
-        </table>
-
-        <h2>6. Your Privacy Rights</h2>
-
-        <h3>6.1 Rights Under GDPR (European Users)</h3>
-        <p>If you are in the European Economic Area (EEA), you have the right to:</p>
-        <ul>
-            <li>✅ <strong>Access</strong> - Request a copy of your personal data</li>
-            <li>✅ <strong>Rectification</strong> - Correct inaccurate or incomplete data</li>
-            <li>✅ <strong>Erasure ("Right to be Forgotten")</strong> - Request deletion of your data</li>
-            <li>✅ <strong>Restriction</strong> - Limit how we use your data</li>
-            <li>✅ <strong>Data Portability</strong> - Receive your data in a machine-readable format</li>
-            <li>✅ <strong>Object</strong> - Object to processing of your data</li>
-            <li>✅ <strong>Withdraw Consent</strong> - Revoke previously given consent</li>
-        </ul>
-
-        <h3>6.2 Rights Under CCPA (California Users)</h3>
-        <p>If you are a California resident, you have the right to:</p>
-        <ul>
-            <li>✅ Know what personal information is collected</li>
-            <li>✅ Know whether your data is sold or disclosed</li>
-            <li>✅ Opt-out of the sale of your personal information</li>
-            <li>✅ Access your personal information</li>
-            <li>✅ Request deletion of your personal information</li>
-            <li>✅ Non-discrimination for exercising your rights</li>
-        </ul>
-
-        <h3>6.3 How to Exercise Your Rights</h3>
-        <p>To exercise any of these rights, you can:</p>
-        <ul>
-            <li>📧 Contact us through the application support form</li>
-            <li>⚙️ Use the Settings page to manage your account</li>
-            <li>🗑️ Delete your chat history from the dashboard</li>
-            <li>❌ Close your account from the Settings page</li>
-        </ul>
-
-        <div class="info-box">
-            <p><strong>Response Time:</strong> We will respond to your requests within 30 days (GDPR) or 45 days (CCPA).</p>
-        </div>
-
-        <h2>7. Cookies and Tracking</h2>
-
-        <h3>7.1 Cookies We Use</h3>
-        <ul>
-            <li><strong>Session Cookies</strong> - Essential for login and authentication</li>
-            <li><strong>Preference Cookies</strong> - Remember your language and settings</li>
-            <li><strong>Security Cookies</strong> - Prevent fraud and enhance security</li>
-        </ul>
-
-        <h3>7.2 Third-Party Tracking</h3>
-        <p>We do NOT use:</p>
-        <ul>
-            <li>❌ Google Analytics or similar tracking tools</li>
-            <li>❌ Advertising cookies</li>
-            <li>❌ Social media tracking pixels</li>
-        </ul>
-
-        <h2>8. International Data Transfers</h2>
-        <p>Your data may be transferred to and processed in countries other than your own. We ensure that:</p>
-        <ul>
-            <li>Data transfers comply with GDPR and other applicable laws</li>
-            <li>Adequate safeguards are in place (Standard Contractual Clauses)</li>
-            <li>Third-party processors are contractually bound to protect your data</li>
-        </ul>
-
-        <h2>9. Children's Privacy</h2>
-        <p>DevOps Agent is NOT intended for use by children under the age of 13 (or 16 in the EEA). We do not knowingly collect personal information from children. If we discover that a child has provided us with personal information, we will delete it immediately.</p>
-
-        <h2>10. Changes to This Privacy Policy</h2>
-        <p>We may update this Privacy Policy from time to time. Changes will be:</p>
-        <ul>
-            <li>Posted on this page with an updated "Effective Date"</li>
-            <li>Notified to you via email for material changes</li>
-            <li>Effective immediately upon posting</li>
-        </ul>
-        <p>Your continued use of the Service after changes constitutes acceptance of the updated Privacy Policy.</p>
-
-        <h2>11. Third-Party Services</h2>
-
-        <h3>11.1 Services We Integrate With</h3>
-        <p>DevOps Agent integrates with the following third-party services:</p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Service</th>
-                    <th>Purpose</th>
-                    <th>Privacy Policy</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Anthropic (Claude)</td>
-                    <td>AI model processing</td>
-                    <td><a href="https://www.anthropic.com/privacy" target="_blank">Anthropic Privacy</a></td>
-                </tr>
-                <tr>
-                    <td>AWS</td>
-                    <td>Cloud infrastructure</td>
-                    <td><a href="https://aws.amazon.com/privacy/" target="_blank">AWS Privacy</a></td>
-                </tr>
-                <tr>
-                    <td>Azure</td>
-                    <td>Cloud infrastructure</td>
-                    <td><a href="https://privacy.microsoft.com/" target="_blank">Microsoft Privacy</a></td>
-                </tr>
-                <tr>
-                    <td>GCP</td>
-                    <td>Cloud infrastructure</td>
-                    <td><a href="https://policies.google.com/privacy" target="_blank">Google Privacy</a></td>
-                </tr>
-                <tr>
-                    <td>Stripe</td>
-                    <td>Payment processing</td>
-                    <td><a href="https://stripe.com/privacy" target="_blank">Stripe Privacy</a></td>
-                </tr>
-            </tbody>
-        </table>
-
-        <div class="warning-box">
-            <p><strong>Important:</strong> We are not responsible for the privacy practices of these third-party services. We recommend reviewing their privacy policies.</p>
-        </div>
-
-        <h2>12. Data Breach Notification</h2>
-        <p>In the event of a data breach that affects your personal information, we will:</p>
-        <ul>
-            <li>Notify you via email within 72 hours (GDPR requirement)</li>
-            <li>Inform relevant regulatory authorities as required by law</li>
-            <li>Provide details about the breach and steps we're taking</li>
-            <li>Advise you on protective measures you should take</li>
-        </ul>
-
-        <h2>13. Do Not Track Signals</h2>
-        <p>Our Service does not currently respond to "Do Not Track" (DNT) browser signals, as there is no industry standard for how to respond to such signals.</p>
-
-        <h2>14. Contact Information</h2>
-        <p>For privacy-related questions or concerns, please contact us through:</p>
-        <ul>
-            <li>📧 The support form in the application</li>
-            <li>⚙️ The Settings page</li>
-            <li>📋 Our Usage Policy for general terms</li>
-        </ul>
-
-        <div class="info-box">
-            <p><strong>📢 GDPR Data Protection Officer (DPO):</strong> For GDPR-specific inquiries, please mark your communication as "Attention: Data Protection Officer."</p>
-        </div>
-
-        <h2>15. Summary of Key Points</h2>
-
-        <div class="info-box">
-            <p><strong>Quick Privacy Summary:</strong></p>
-            <table>
-                <tbody>
-                    <tr>
-                        <th scope="row"><strong>What we collect</strong></th>
-                        <td>Account info, usage data, cloud credentials (encrypted)</td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><strong>How we use it</strong></th>
-                        <td>Service provision, security, billing, improvement</td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><strong>Who we share with</strong></th>
-                        <td>Essential service providers only (Anthropic, cloud hosts, Stripe)</td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><strong>Do we sell data?</strong></th>
-                        <td>❌ NO, we do NOT sell your personal information</td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><strong>Your rights</strong></th>
-                        <td>Access, correct, delete, download your data (GDPR/CCPA)</td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><strong>Security</strong></th>
-                        <td>Encryption, hashing, access controls, monitoring</td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><strong>Data retention</strong></th>
-                        <td>Active accounts retained; deleted within 90 days after closure</td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><strong>Compliance</strong></th>
-                        <td>GDPR, CCPA, industry standards</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="footer-links">
-            <a href="/usage-policy">📋 Usage Policy</a>
-            <a href="/">🏠 Back to Dashboard</a>
-        </div>
-
-        <a href="/" class="back-link">← Back to Dashboard</a>
     </div>
+
+    <h2>1. What we collect</h2>
+    <h3>Your account</h3>
+    <ul>
+        <li>Email address, username, and any name you add.</li>
+        <li>Your password, stored only as a bcrypt hash.</li>
+        <li>Your two-factor sign-in settings (email codes or an authenticator app).</li>
+        <li>Your plan, credit balance, and settings and preferences.</li>
+    </ul>
+    <h3>Cloud accounts and tools you connect</h3>
+    <ul>
+        <li>AWS, Azure and Google Cloud connection details: for example an AWS role ARN and external ID, or access keys if you choose them.</li>
+        <li>Tokens and addresses for tools you connect in Settings &rsaquo; Integrations (such as GitHub, GitLab, Jenkins, PagerDuty, OpsGenie, Datadog, SonarQube and Nexus).</li>
+        <li>These are encrypted before we store them.</li>
+    </ul>
+    <h3>What you do in DevOps Agent</h3>
+    <ul>
+        <li>Your messages, the agent's replies, and the actions it runs with their results. Results can include details of your cloud resources, such as names, IDs, configuration and costs.</li>
+        <li>Resources we read from your connected accounts to show on the Dashboard and Map.</li>
+        <li>Requests waiting for your confirmation or a teammate's approval, and what happened to them.</li>
+        <li>Usage records: which actions ran, when, and the credits used.</li>
+    </ul>
+    <h3>Technical information</h3>
+    <ul>
+        <li>Your IP address and browser or device type, used for security, rate limits and fixing problems.</li>
+        <li>How you first found us: the referring website or campaign tag in the link you used (for example <code>utm_source</code>). It is saved with your account when you sign up.</li>
+    </ul>
+    <h3>Payments</h3>
+    <p>Payments on the website are handled by Stripe. We never see or store your card number. We keep your plan and
+        subscription status and the Stripe reference for them. The iPhone app has no purchases.</p>
+    <h3>In the iPhone app</h3>
+    <ul>
+        <li>If you allow notifications, a push token from Apple so we can tell you when an action needs your confirmation.</li>
+        <li>Face ID runs on your phone. We never receive your face data; the app only learns whether it succeeded.</li>
+        <li>The app doesn't access your contacts, photos, location or other apps.</li>
+    </ul>
+
+    <h2>2. How we use it</h2>
+    <ul>
+        <li>To run the service: answer your messages, act on the accounts you connect, and show your resources and costs.</li>
+        <li>To keep it safe: sign-in protection, account lockout, rate limits, and screening messages for abuse.</li>
+        <li>To email you: sign-in and security codes, confirmations, and account messages. We also send a short series of
+            getting-started emails after you sign up and a weekly summary. Every one of those has an unsubscribe link.</li>
+        <li>To bill paid plans through Stripe.</li>
+        <li>To find and fix problems and improve the service.</li>
+    </ul>
+    <p>We don't sell your personal information, use it for advertising, or track you across other companies' apps and websites.</p>
+
+    <h2>3. Who receives it</h2>
+    <p>We use these companies to run DevOps Agent. Each receives only what its job needs.</p>
+    <div class="table-wrap">
+        <table>
+            <tr><th>Company</th><th>What for</th><th>What they receive</th></tr>
+            <tr><td>Anthropic</td><td>AI models (Claude)</td><td>Every message is checked for abuse by an Anthropic model before it is answered. On plans that use Claude, your messages, the agent's action results and conversation context.</td></tr>
+            <tr><td>Moonshot AI</td><td>AI models (Kimi)</td><td>On plans that use Kimi, your messages, the agent's action results and conversation context.</td></tr>
+            <tr><td>Groq</td><td>Backup AI model</td><td>Your message and conversation context, only when the main model is unavailable.</td></tr>
+            <tr><td>Amazon Web Services</td><td>Hosting</td><td>Everything we store. Our servers and database run on AWS in the United States.</td></tr>
+            <tr><td>Cloudflare</td><td>Network and security</td><td>All traffic to devopsagent.io passes through Cloudflare, including your IP address.</td></tr>
+            <tr><td>Stripe</td><td>Payments</td><td>Your email and payment details when you pay on the website.</td></tr>
+            <tr><td>Brevo</td><td>Email delivery</td><td>Your email address and the emails we send you.</td></tr>
+            <tr><td>Apple</td><td>Push notifications</td><td>Your push token and the notification text: the name of the action, its risk level and, for a teammate's request, their username. Never the action's details.</td></tr>
+            <tr><td>ip-api.com</td><td>Choosing a currency</td><td>Your IP address, when you open the billing pages, to show prices in your currency.</td></tr>
+            <tr><td>Google Fonts, jsDelivr, unpkg</td><td>Fonts and page scripts</td><td>Your IP address and browser details, when a page loads fonts or scripts from them.</td></tr>
+        </table>
+    </div>
+    <p>When you ask the agent to work on your AWS, Azure or Google Cloud account, or a tool you connected, it sends
+        requests to that provider using the access you gave it. Those providers' own terms apply to your accounts with them.</p>
+    <p>We may also disclose information if the law requires it, or to protect the service and its users from fraud or abuse.</p>
+
+    <h2>4. How we protect it</h2>
+    <ul>
+        <li>Connections to DevOps Agent use HTTPS.</li>
+        <li>Cloud credentials and tool tokens are encrypted before they are stored (Fernet: AES-128 with an HMAC check).</li>
+        <li>Passwords are stored only as bcrypt hashes.</li>
+        <li>Two-factor sign-in is available, and risky actions on your cloud accounts wait for your confirmation (or a teammate's approval) before they run.</li>
+    </ul>
+    <p>No system is perfectly secure, and we can't promise yours will never be affected. Report security problems to
+        <a href="mailto:security@devopsagent.io">security@devopsagent.io</a>.</p>
+
+    <h2>5. How long we keep it</h2>
+    <p>We keep your data while your account exists. When you delete your account, we delete your account and everything
+        tied to it (chats, connections, tokens, resources, requests, usage records and push tokens) from our database straight away,
+        and cancel any paid subscription.</p>
+    <p>A few things are outside that deletion:</p>
+    <ul>
+        <li>Information already sent to the companies in section 3 is kept under their own retention rules. Stripe, for example, keeps payment records it is required to keep by law.</li>
+        <li>Copies in server logs or database backups remain until those logs or backups are deleted.</li>
+    </ul>
+
+    <h2>6. Your choices</h2>
+    <ul>
+        <li><strong>Delete your account:</strong> Settings &rsaquo; Profile &rsaquo; Delete account, on the website or in the iPhone app.</li>
+        <li><strong>See and change your details:</strong> in Settings. You can disconnect cloud accounts and tools there at any time.</li>
+        <li><strong>Keep a copy of a chat:</strong> use Export Chat in the profile menu on the chat page.</li>
+        <li><strong>Stop marketing emails:</strong> use the unsubscribe link in any of them. Account and security emails still go out.</li>
+        <li><strong>Turn off notifications:</strong> in your iPhone's Settings &rsaquo; Notifications &rsaquo; DevOps Agent.</li>
+        <li><strong>Anything else</strong>, such as a copy of your data or a correction you can't make yourself: email
+            <a href="mailto:support@devopsagent.io">support@devopsagent.io</a>. Depending on where you live, you may have legal rights over your data; we'll help you use them.</li>
+    </ul>
+
+    <h2>7. Cookies and storage on your device</h2>
+    <ul>
+        <li>A sign-in session cookie, and a "remember me" cookie for up to 30 days if you tick that box.</li>
+        <li>A security token on forms, which protects against forged requests.</li>
+        <li>Your browser's local storage, for small preferences such as light or dark theme. In the iPhone app it also holds your push token.</li>
+    </ul>
+    <p>We don't use advertising or analytics cookies.</p>
+
+    <h2>8. Where your data is processed</h2>
+    <p>We store your data in the United States. The companies in section 3 may process it in other countries.</p>
+
+    <h2>9. Children</h2>
+    <p>DevOps Agent is a tool for working on cloud infrastructure and isn't meant for children. We don't knowingly
+        collect information from anyone under 13 (under 16 in the European Economic Area). If you think a child has given
+        us information, contact us and we'll delete it.</p>
+
+    <h2>10. Changes</h2>
+    <p>If we change this policy, we'll post the new version here with a new date.</p>
+
+    <h2>11. Contact</h2>
+    <p>Urgency LLC, operator of DevOps Agent<br>
+        Email: <a href="mailto:support@devopsagent.io">support@devopsagent.io</a></p>
+</main>
+<script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>
