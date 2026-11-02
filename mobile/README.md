@@ -72,6 +72,8 @@ The server tries the other one automatically if Apple rejects a token, so both w
 ## What's where
 
 - `capacitor.config.json`: app id, name, start URL, the user-agent marker, offline page.
+  Keep `server.url` as the bare site (`https://devopsagent.io`) and put the first page in
+  `appStartPath`: Capacitor opens any URL that doesn't start with `server.url` in Safari.
 - `www/`: what's bundled in the app. `offline.html` shows when the site can't be reached.
 - `ios/App/App/AppDelegate.swift`: forwards the push token to the plugin.
 - `ios/App/App/Info.plist`: includes the Face ID message (the app crashes on Face ID without it).
