@@ -270,7 +270,7 @@ def _notify_requester_to_confirm(req):
     db.session.add(AppNotification(
         user_id=req.requester_id,
         title=f"Confirm action: {req.tool_name}",
-        body=f"{req.risk_reason}. Confirm or cancel it within 24 hours.",
+        body=f"{(req.risk_reason or '').rstrip('. ')}. Confirm or cancel it within 24 hours.",
         category='warning',
         link='/approvals/mine',
     ))

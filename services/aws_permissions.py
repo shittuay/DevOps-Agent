@@ -234,8 +234,13 @@ def describe(req_input: Dict) -> str:
     extra = [a for a in policy_actions(req_input.get('policy')) if a != action]
     also = (f" It also covers this service's other list and describe reads ({', '.join(extra)}), "
             "so you aren't asked again for each one." if extra else '')
-    level = (" Tip: with the CloudFormation access level 'Read' or 'Manage', DevOps Agent can "
-             "already read or manage every AWS service, so this rarely comes up.")
+    if _is_write_action(action):
+        level = (" Tip: the 'Read' access level only looks at your account. To let DevOps Agent "
+                 "create and change things without a request each time, switch your AWS "
+                 "connection to the 'Manage' access level.")
+    else:
+        level = (" Tip: the 'Read' access level already covers reading every AWS service, "
+                 "so switching to it avoids requests like this one.")
     return (f"AWS refused {tool}: the account is missing {action}. To finish what was asked, "
             f"allow {action} on {req_input['resource']}.{also} {how}{warn}{level}")
 
