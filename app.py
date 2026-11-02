@@ -411,6 +411,8 @@ from routes.integrations import integrations_bp
 app.register_blueprint(integrations_bp)
 from routes.push import push_bp
 app.register_blueprint(push_bp)
+from routes.ai_consent import ai_consent_bp
+app.register_blueprint(ai_consent_bp)
 
 # Load built-in skills at import time — gunicorn never runs the __main__ block,
 # so loading there left the Skills feature empty in production. Passing `app`
@@ -509,6 +511,13 @@ def _no_billing_in_ios_app():
         if request.path.startswith('/api/'):
             return jsonify({'error': 'not_available_in_app'}), 404
         return redirect('/settings')
+
+
+@app.before_request
+def _ai_consent_in_ios_app():
+    """In the iPhone app, nothing goes to an AI provider until the user has said yes."""
+    from services.ai_consent import consent_required_response
+    return consent_required_response()
 
 
 @app.context_processor

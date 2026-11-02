@@ -2165,7 +2165,7 @@
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
 </head>
-<body data-signed-in="{{ '1' if current_user.is_authenticated else '0' }}">
+<body data-signed-in="{{ '1' if current_user.is_authenticated else '0' }}" data-ai-consent="{{ '1' if current_user.is_authenticated and current_user.ai_consent_at else '0' }}">
     <!-- Sidebar Overlay for Mobile -->
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
@@ -4634,5 +4634,6 @@
     </div>
 
 {% if ios_app %}<script src="{{ url_for('static', filename='js/vendor/capacitor-8.5.3.js') }}" defer></script><script src="{{ url_for('static', filename='js/native_app.js') }}" defer></script>{% endif %}
+{% if ios_app %}<script src="{{ url_for('static', filename='js/ai_consent.js') }}" defer></script>{% endif %}
 </body>
 </html>

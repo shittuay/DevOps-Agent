@@ -470,7 +470,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 }
 </style>
 </head>
-<body>
+<body data-signed-in="{{ '1' if current_user.is_authenticated else '0' }}" data-ai-consent="{{ '1' if current_user.is_authenticated and current_user.ai_consent_at else '0' }}">
 <div class="header">
     <div class="logo-section">
         <div class="logo-icon">>_</div>
@@ -1059,5 +1059,6 @@ function renderMarkdown(text) {
 // updateQuizBadge() still updates the badge after a quiz is completed in-session.
 </script>
 <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+{% if ios_app %}<script src="{{ url_for('static', filename='js/ai_consent.js') }}" defer></script>{% endif %}
 </body>
 </html>

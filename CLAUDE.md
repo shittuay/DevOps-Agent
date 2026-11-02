@@ -2540,6 +2540,14 @@ runtime, vendored at `static/js/vendor/capacitor-<version>.js` (copied from
 under the new version name and update both templates**; the test fails otherwise.
 **Not yet built on a real device** (generated on Linux); Capacitor documents `server.url` as not
 for production and Apple's 4.2 "just a website" rule is the main review risk.
+**AI data-sharing consent** (2026-11-02, Apple 5.1.2(i)): in the app, the first POST to an AI
+endpoint (`services/ai_consent.AI_ENDPOINTS`: both chat routes, the Learn coach and quiz generator)
+opens a "Before you chat" screen (`static/js/ai_consent.js`, wraps `fetch`) naming what is sent and
+to whom. Allow sets `User.ai_consent_at` (`POST /api/ai-consent`; `DELETE` withdraws, also from
+Settings > Profile > AI data sharing, app only). A before-request hook returns 403
+`ai_consent_required` for app requests until then, before any credit is spent; the website is not
+gated. **A new endpoint that sends user data to a model must be added to `AI_ENDPOINTS`**, and a
+new AI provider to `AI_PROVIDERS`, the JS list and the privacy policy (`tests/test_ai_consent.py`).
 **Privacy policy** (`/privacy-policy`, rewritten 2026-11-02, operator Urgency LLC, contact
 support@devopsagent.io) lists every company the code sends data to and makes no claim the code
 doesn't back; Settings links to it. **When you add a third-party service that receives user data,
