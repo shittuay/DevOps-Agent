@@ -80,6 +80,9 @@ class User(UserMixin, db.Model):
     # Email preferences
     email_opt_out = db.Column(db.Boolean, default=False)
 
+    # When the user allowed their messages to be sent to the AI providers (asked in the iPhone app)
+    ai_consent_at = db.Column(db.DateTime, nullable=True)
+
     # SSO / federated identity (set when the account authenticates via an org IdP)
     sso_provider = db.Column(db.String(50), nullable=True)   # generic_oidc|google|azure|github
     sso_subject = db.Column(db.String(255), nullable=True)   # stable IdP subject ('sub') claim

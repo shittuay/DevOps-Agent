@@ -616,6 +616,16 @@
                     {% if user.last_login %}<div><span>Last sign-in</span>{{ user.last_login.strftime('%B %d, %Y at %I:%M %p') }} UTC</div>{% endif %}
                 </div>
 
+                {% if ios_app %}
+                <div class="security-box" id="aiConsentBox">
+                    <h3>AI data sharing</h3>
+                    <p>To answer you, your messages and the results of the agent's actions are sent to AI services run by other companies. <a href="/privacy-policy">Details</a></p>
+                    <p data-aic-status>{{ 'Allowed.' if user.ai_consent_at else 'Not allowed.' }}</p>
+                    <p data-aic-error class="settings-notice" style="display:none;"></p>
+                    <button type="button" class="btn-secondary" data-aic-toggle>{{ 'Withdraw permission' if user.ai_consent_at else 'Allow' }}</button>
+                </div>
+                {% endif %}
+
                 <p class="privacy-link" style="margin:16px 0;"><a href="/privacy-policy">Privacy policy</a> &middot; what we collect and how deletion works</p>
 
                 <div class="security-box danger-zone" id="deleteAccountBox">
