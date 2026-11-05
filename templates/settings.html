@@ -1871,7 +1871,7 @@
                     list.innerHTML = channels.map(ch => `
                         <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 8px;">
                             <div>
-                                <span style="font-weight: 500; color: var(--text-primary);">${ch.name}</span>
+                                <span style="font-weight: 500; color: var(--text-primary);">${_escBudget(ch.name)}</span>
                                 <span style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; margin-left: 8px; background: ${ch.channel_type === 'slack' ? 'rgba(74,21,75,0.3)' : 'rgba(69,90,172,0.3)'}; color: var(--text-secondary);">${ch.channel_type}</span>
                                 ${ch.is_active ? '' : '<span style="font-size:0.75rem; color:var(--accent-warning); margin-left:8px;">paused</span>'}
                             </div>
