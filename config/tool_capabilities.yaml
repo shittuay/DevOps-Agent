@@ -278,8 +278,8 @@ tools:
   put_iam_inline_policy: { permission: modify, mutating: true }
   put_s3_bucket_policy: { permission: modify, mutating: true }
   put_s3_lifecycle_policy: { permission: modify, mutating: true }
-  query_bigquery: { permission: modify, mutating: true }
   put_s3_replication: { permission: modify, mutating: true }
+  query_bigquery: { permission: modify, mutating: true }
   reboot_rds_instance: { permission: modify, mutating: true }
   regenerate_storage_key: { permission: destroy, mutating: true }
   register_targets: { permission: modify, mutating: true }
