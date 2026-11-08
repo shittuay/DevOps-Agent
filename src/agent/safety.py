@@ -449,6 +449,7 @@ class SafetyValidator:
             'create_eventbridge_rule',
             'resize_gke_cluster',
             'create_pubsub_subscription',
+            'query_bigquery',
             # Git medium risk
             'git_clone_repository',
             'git_add_remote',
