@@ -7,7 +7,7 @@
     <div class="page-header">
         <h1>Analytics Dashboard</h1>
         <div class="header-actions">
-            <select id="periodSelect" class="period-select">
+            <select id="periodSelect" class="period-select" aria-label="Time period">
                 <option value="7d">Last 7 days</option>
                 <option value="30d" selected>Last 30 days</option>
                 <option value="90d">Last 90 days</option>
@@ -54,7 +54,7 @@
     <div class="charts-grid">
         <div class="chart-card large">
             <div class="chart-header">
-                <h3>Cost Trend</h3>
+                <h2>Cost Trend</h2>
                 <div class="chart-legend" id="costLegend"></div>
             </div>
             <div class="chart-body">
@@ -64,7 +64,7 @@
 
         <div class="chart-card">
             <div class="chart-header">
-                <h3>Cost by Service</h3>
+                <h2>Cost by Service</h2>
             </div>
             <div class="chart-body">
                 <canvas id="serviceChart"></canvas>
@@ -73,7 +73,7 @@
 
         <div class="chart-card">
             <div class="chart-header">
-                <h3>Resource Utilization</h3>
+                <h2>Resource Utilization</h2>
             </div>
             <div class="chart-body">
                 <canvas id="utilizationChart"></canvas>
@@ -82,26 +82,26 @@
     </div>
 
     <div class="insights-section">
-        <h3>AI Insights</h3>
+        <h2>AI Insights</h2>
         <div class="insights-grid" id="insightsGrid">
             <div class="insight-card">
                 <div class="insight-icon savings"><i class="fas fa-piggy-bank"></i></div>
                 <div class="insight-content">
-                    <h4>Cost Optimization</h4>
+                    <h3>Cost Optimization</h3>
                     <p>Loading recommendations...</p>
                 </div>
             </div>
             <div class="insight-card">
                 <div class="insight-icon performance"><i class="fas fa-tachometer-alt"></i></div>
                 <div class="insight-content">
-                    <h4>Performance</h4>
+                    <h3>Performance</h3>
                     <p>Analyzing metrics...</p>
                 </div>
             </div>
             <div class="insight-card">
                 <div class="insight-icon security"><i class="fas fa-shield-alt"></i></div>
                 <div class="insight-content">
-                    <h4>Security</h4>
+                    <h3>Security</h3>
                     <p>Scanning resources...</p>
                 </div>
             </div>
@@ -234,6 +234,7 @@
 .metric-change.positive {
     color: #10b981;
 }
+[data-theme="light"] .metric-change.positive { color: #047857; }
 
 .metric-change.negative {
     color: #ef4444;
@@ -264,7 +265,7 @@
     margin-bottom: 20px;
 }
 
-.chart-header h3 {
+.chart-header h2, .chart-header h3 {
     margin: 0;
     color: var(--text-primary);
     font-size: 16px;
@@ -280,7 +281,7 @@
     height: 100% !important;
 }
 
-.insights-section h3 {
+.insights-section h2, .insights-section h3 {
     color: var(--text-primary);
     margin-bottom: 20px;
 }
@@ -325,7 +326,7 @@
     color: #ef4444;
 }
 
-.insight-content h4 {
+.insight-content h3, .insight-content h4 {
     margin: 0 0 8px;
     color: var(--text-primary);
     font-size: 14px;

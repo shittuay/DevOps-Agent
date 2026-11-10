@@ -13,7 +13,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #4c51bf 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 40px 20px;
             color: #333;
@@ -29,7 +29,7 @@
         }
 
         h1 {
-            color: #667eea;
+            color: #4c51bf;
             font-size: 2.5em;
             margin-bottom: 10px;
             text-align: center;
@@ -44,11 +44,11 @@
         }
 
         h2 {
-            color: #667eea;
+            color: #4c51bf;
             font-size: 1.8em;
             margin-top: 40px;
             margin-bottom: 15px;
-            border-bottom: 3px solid #667eea;
+            border-bottom: 3px solid #4c51bf;
             padding-bottom: 10px;
         }
 
@@ -79,20 +79,20 @@
         }
 
         .legal-box strong {
-            color: #d32f2f;
+            color: #b71c1c;
             font-size: 1.1em;
         }
 
         .critical-section {
             background: #ffebee;
-            border: 3px solid #d32f2f;
+            border: 3px solid #b71c1c;
             padding: 25px;
             margin: 30px 0;
             border-radius: 10px;
         }
 
         .critical-section h3 {
-            color: #d32f2f;
+            color: #b71c1c;
             font-size: 1.5em;
             margin-top: 0;
         }
@@ -101,7 +101,7 @@
             display: inline-block;
             margin-top: 30px;
             padding: 12px 30px;
-            background: #667eea;
+            background: #4c51bf;
             color: white;
             text-decoration: none;
             border-radius: 25px;
@@ -123,7 +123,7 @@
         }
 
         .footer-links a {
-            color: #667eea;
+            color: #4c51bf;
             text-decoration: none;
             margin: 0 15px;
             font-weight: 600;
@@ -135,7 +135,7 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" role="main" id="main">
         <h1>📋 Usage Policy (Terms of Service)</h1>
         <p class="effective-date">Effective Date: January 1, 2025</p>
 
@@ -354,5 +354,6 @@
 
         <a href="/" class="back-link">← Back to Dashboard</a>
     </div>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

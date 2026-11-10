@@ -121,7 +121,7 @@
 
         .btn-primary {
             background: var(--gradient-primary, linear-gradient(135deg, #ff6b35, #00d4ff));
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
@@ -239,5 +239,6 @@
             }
         }
     </script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

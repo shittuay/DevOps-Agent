@@ -89,7 +89,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             font-weight: 800;
             font-size: 14px;
         }
@@ -199,7 +199,7 @@
             justify-content: center;
             font-size: 24px;
             flex-shrink: 0;
-            color: white;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .feature-title {
@@ -245,7 +245,9 @@
         .feature-list li a,
         .feature-description a {
             color: var(--accent-primary);
-            text-decoration: none;
+            /* Underlined, so the link stands out by more than color alone. */
+            text-decoration: underline;
+            text-underline-offset: 2px;
         }
 
         .feature-list li a:hover,
@@ -288,7 +290,7 @@
             display: inline-block;
             padding: 14px 36px;
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             border-radius: 10px;
             font-family: 'Outfit', sans-serif;
@@ -335,7 +337,7 @@
     </style>
 </head>
 <body>
-    <div class="header">
+    <div class="header" role="banner">
         <div class="header-content">
             <a href="/" class="logo">
                 <div class="logo-icon">>_</div>
@@ -350,7 +352,7 @@
         </div>
     </div>
 
-    <div class="main-container">
+    <div class="main-container" role="main" id="main">
         <div class="hero">
             <h1 class="hero-title">We never need your access keys</h1>
             <p class="hero-subtitle">
@@ -519,5 +521,6 @@
     </footer>
 
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

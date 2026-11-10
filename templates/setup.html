@@ -191,7 +191,7 @@
 
         .btn-primary {
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .btn-primary:hover:not(:disabled) {
@@ -370,5 +370,6 @@
             this.type = this.type === 'password' ? 'text' : 'password';
         });
     </script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

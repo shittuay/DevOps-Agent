@@ -117,7 +117,7 @@
             white-space: nowrap;
         }
 
-        .progress-step.active .progress-label { color: #ff6b35; }
+        .progress-step.active .progress-label { color: var(--accent-primary); }
         .progress-step.done .progress-label { color: #4ade80; }
 
         .progress-line {
@@ -372,7 +372,7 @@
 
         .btn-primary {
             background: linear-gradient(135deg, #ff6b35, #ff8c5a);
-            color: white;
+            color: #0a0e1a;
             box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
         }
 
@@ -652,7 +652,7 @@
     </style>
 </head>
 <body>
-    <div class="wizard-container">
+    <div class="wizard-container" role="main" id="main">
 
         <!-- Progress bar -->
         <div class="progress-bar">
@@ -789,11 +789,11 @@
                             When the stack finishes, copy the <code>RoleArn</code> from its Outputs tab into the field below.
                         </p>
                         <div class="form-group">
-                            <label>IAM Role ARN</label>
+                            <label for="aws-role-arn">IAM Role ARN</label>
                             <input type="text" id="aws-role-arn" placeholder="arn:aws:iam::123456789012:role/DevOpsAgentRole" autocomplete="off" spellcheck="false">
                         </div>
                         <div class="form-group">
-                            <label>External ID</label>
+                            <label for="aws-external-id">External ID</label>
                             <input type="text" id="aws-external-id" placeholder="any-unique-string" autocomplete="off" spellcheck="false">
                             <p class="field-hint">Recommended &mdash; set the same value in the role's trust policy condition.</p>
                         </div>
@@ -808,11 +808,11 @@
                     <!-- Access key fields (hidden by default) -->
                     <div id="aws-key-fields" style="display:none">
                         <div class="form-group">
-                            <label>AWS Access Key ID</label>
+                            <label for="aws-access-key">AWS Access Key ID</label>
                             <input type="text" id="aws-access-key" placeholder="AKIAIOSFODNN7EXAMPLE" autocomplete="off" spellcheck="false">
                         </div>
                         <div class="form-group">
-                            <label>AWS Secret Access Key</label>
+                            <label for="aws-secret-key">AWS Secret Access Key</label>
                             <input type="password" id="aws-secret-key" placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" autocomplete="new-password">
                         </div>
                         <p class="field-hint">
@@ -823,7 +823,7 @@
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Default Region</label>
+                            <label for="aws-region">Default Region</label>
                             <select id="aws-region">
                                 <option value="us-east-1">us-east-1 (N. Virginia)</option>
                                 <option value="us-east-2">us-east-2 (Ohio)</option>
@@ -845,21 +845,21 @@
                 <div class="cloud-panel" id="panel-azure">
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Subscription ID</label>
+                            <label for="azure-sub">Subscription ID</label>
                             <input type="text" id="azure-sub" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
                         </div>
                         <div class="form-group">
-                            <label>Tenant ID</label>
+                            <label for="azure-tenant">Tenant ID</label>
                             <input type="text" id="azure-tenant" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Client ID</label>
+                            <label for="azure-client-id">Client ID</label>
                             <input type="text" id="azure-client-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
                         </div>
                         <div class="form-group">
-                            <label>Client Secret</label>
+                            <label for="azure-client-secret">Client Secret</label>
                             <input type="password" id="azure-client-secret" placeholder="Your service principal secret" autocomplete="new-password">
                         </div>
                     </div>
@@ -868,11 +868,11 @@
                 <!-- GCP panel -->
                 <div class="cloud-panel" id="panel-gcp">
                     <div class="form-group">
-                        <label>Project ID</label>
+                        <label for="gcp-project">Project ID</label>
                         <input type="text" id="gcp-project" placeholder="my-project-123456" autocomplete="off">
                     </div>
                     <div class="form-group">
-                        <label>Service Account Key (JSON)</label>
+                        <label for="gcp-creds">Service Account Key (JSON)</label>
                         <textarea id="gcp-creds" rows="6" style="width:100%;padding:12px 14px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-primary);resize:vertical;" placeholder='{"type":"service_account","project_id":"...","private_key_id":"..."}'></textarea>
                         <p class="field-hint">Paste the full contents of your service account JSON key file.</p>
                     </div>
@@ -1257,5 +1257,6 @@
         document.head.appendChild(style);
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

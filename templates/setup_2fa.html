@@ -76,7 +76,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             font-weight: 800;
             font-size: 20px;
             font-family: 'Syne', sans-serif;
@@ -139,7 +139,7 @@
             width: 32px;
             height: 32px;
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border-radius: 50%;
             font-family: 'Syne', sans-serif;
             font-weight: 800;
@@ -253,7 +253,7 @@
             width: 100%;
             padding: 16px;
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             border-radius: 10px;
             font-size: 15px;
@@ -391,7 +391,7 @@
     </style>
 </head>
 <body class="animated-bg">
-    <div class="page-container page-content">
+    <div class="page-container page-content" role="main" id="main">
         <div class="header">
             <div class="logo-section">
                 <div class="logo-icon">>_</div>
@@ -405,6 +405,7 @@
         </div>
 
         <div class="container">
+            <h1 class="sr-only">Two-factor sign-in</h1>
             <p id="signedInAs" style="margin:0 0 16px; font-size:14px; color:var(--text-secondary); overflow-wrap:anywhere;">
                 Signed in as <strong>{{ user.email }}</strong> &middot;
                 <a href="/logout" style="color:var(--accent-primary);">Not you? Sign out</a>
@@ -850,5 +851,6 @@
         });
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

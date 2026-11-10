@@ -101,7 +101,7 @@ body::after {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
+    color: var(--on-accent, #0a0e1a);
     font-family: 'IBM Plex Mono', monospace;
     font-weight: 700;
     font-size: 24px;
@@ -182,7 +182,7 @@ input:focus {
     width: 100%;
     padding: 18px;
     background: var(--gradient-primary);
-    color: white;
+    color: var(--on-accent, #0a0e1a);
     border: none;
     border-radius: 12px;
     font-size: 17px;

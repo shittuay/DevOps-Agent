@@ -2688,6 +2688,27 @@ leftover switch (`.theme-toggle-floating`, on pages with their own header such a
 Admin, Learn and the sign-in pages) is small and sits in the bottom-left corner. It used to float at
 top-right, over page content. Guard: `tests/test_theme_toggle_placement.py`.
 
+### Accessibility (WCAG 2.1 AA audit, 2026-11-10, owner request)
+Every page (31 routes, dark and light theme, and the iPhone app) was scanned with axe-core and
+walked with the keyboard; all passed afterwards. Rules that keep it that way:
+- **Colors.** `--text-tertiary`/`--text-muted` and the light theme's `--accent-primary` (`#b13c0b`) are
+  set for 4.5:1. Text on an orange background uses `var(--on-accent)` (dark on the bright orange,
+  white on the light theme's deeper one): white on `#ff6b35` is 2.8:1. Neon accents (cyan, purple,
+  green) need a darker light-theme override when used as text.
+- **Landmarks.** `base.html` has a skip link, `<header>`, `<nav>` and `<main id="main">`; standalone
+  pages put `role="main"` (or `<main>`) on their content container.
+- **Keyboard.** `static/js/a11y.js` (loaded on every full page) gives any `[onclick]` div/span
+  `tabindex=0`, a button/link role and Enter/Space, including elements added later. Prefer a real
+  `<button>`/`<a>` in new markup. Dialogs move focus in, trap Tab and close on Escape (the chat's
+  risky-action confirmation and the consent screen do).
+- **Closed modals/panels** set `visibility: hidden` as well as `opacity: 0`; opacity alone leaves
+  them readable by screen readers and reachable with Tab.
+- **Labels** use `for=` (or wrap the field); dropdowns without a visible label get `aria-label`.
+- **Chat** announces "Working on it" and then the finished reply through `#replyAnnouncer`
+  (`role=status`); the message list itself is not live, or every streamed word would be read.
+Guard: `tests/test_accessibility.py`. Automated checks catch only part of WCAG; test with VoiceOver
+on an iPhone before major releases.
+
 ### Settings in one place (2026-10-16, owner request)
 Settings is reached from the **profile icon** (base.html `#accountMenu`: Settings, Billing & credits,
 Teams, Log out; the chat page's profile menu has one Settings entry). It is **not** a top-bar tab.

@@ -51,7 +51,7 @@ a.back-btn:hover, button.tb-btn:hover {
 button.tb-btn.primary {
     background:var(--accent-primary);
     border-color:var(--accent-primary);
-    color:#fff;
+    color: var(--on-accent, #0a0e1a);
 }
 button.tb-btn.primary:hover { filter:brightness(1.1); }
 
@@ -74,7 +74,8 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
     background:var(--bg-elevated); color:var(--text-secondary); font-size:12px;
     cursor:pointer; transition:all .14s; white-space:nowrap;
 }
-.fc.on { border-color:#6366f1; color:#6366f1; background:rgba(99,102,241,.12); }
+.fc.on { border-color:#6366f1; color:#818cf8; background:rgba(99,102,241,.12); }
+[data-theme="light"] .fc.on { color:#4f46e5; }
 .fc-label { font-size:12px; color:var(--text-secondary); white-space:nowrap; }
 
 /* ── Map area + viewport + world ────────────────────────────────────────── */
@@ -241,7 +242,7 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 }
 .tip-investigate {
     display:inline-block; margin-top:8px; padding:4px 10px;
-    background:var(--accent-primary,#6366f1); color:#fff;
+    background:var(--accent-primary,#6366f1); color: var(--on-accent, #0a0e1a);
     border-radius:6px; font-size:11px; font-weight:600;
     text-decoration:none; transition:filter .14s;
 }
@@ -258,7 +259,7 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 #emptyState .es-icon { font-size:52px; opacity:.4; }
 #emptyState p { font-size:15px; color:var(--text-secondary); }
 #emptyState a {
-    padding:9px 20px; background:var(--accent-primary); color:#fff;
+    padding:9px 20px; background:var(--accent-primary); color: var(--on-accent, #0a0e1a);
     border-radius:8px; text-decoration:none; font-size:13px; font-weight:600;
     pointer-events:all;
 }
@@ -275,7 +276,7 @@ button.tb-btn.primary:hover { filter:brightness(1.1); }
 }
 </style>
 
-<div id="mapShell">
+<main id="main" tabindex="-1" style="display:contents"><div id="mapShell">
 <!-- Top bar -->
 <div id="topbar">
     <div class="tb-left">
@@ -703,4 +704,5 @@ loadMap();
 window.addEventListener('resize', fitView);
 </script>
 </div>
+</main>
 {% endblock %}

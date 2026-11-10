@@ -69,8 +69,8 @@
             color: var(--text-secondary);
             text-decoration: none;
         }
-        .pagination a:hover { background: var(--accent-primary); color: white; }
-        .pagination .active { background: var(--accent-primary); color: white; }
+        .pagination a:hover { background: var(--accent-primary); color: var(--on-accent, #0a0e1a); }
+        .pagination .active { background: var(--accent-primary); color: var(--on-accent, #0a0e1a); }
         .empty-state {
             text-align: center;
             padding: 3rem;
@@ -149,5 +149,6 @@
         </div>
     </div>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

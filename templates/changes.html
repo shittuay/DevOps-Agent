@@ -54,7 +54,7 @@
             font-family: 'JetBrains Mono', monospace;
             font-weight: 700;
             font-size: 15px;
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .dash-logo-text {
@@ -124,7 +124,7 @@
 
         .btn-primary {
             background: var(--accent-primary);
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .btn-primary:hover { filter: brightness(1.1); }
@@ -228,7 +228,7 @@
 
         .filter-chip.active {
             background: var(--accent-primary);
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
             border-color: var(--accent-primary);
         }
 
@@ -481,12 +481,16 @@
             place-items: center;
             opacity: 0;
             pointer-events: none;
-            transition: opacity 0.2s;
+            /* visibility, not just opacity: a closed modal must be out of reach of Tab and screen readers. */
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0s linear 0.2s;
         }
 
         .modal-overlay.open {
             opacity: 1;
             pointer-events: auto;
+            visibility: visible;
+            transition: opacity 0.2s, visibility 0s;
         }
 
         .modal {
@@ -657,7 +661,7 @@
             stroke-width: 1.5;
         }
 
-        .empty-state h3 {
+        .empty-state h2, .empty-state h3 {
             font-size: 16px;
             font-weight: 600;
             margin-bottom: 8px;
@@ -778,7 +782,7 @@
     </style>
 </head>
 <body>
-    <div class="dash-header">
+    <div class="dash-header" role="banner">
         <div class="dash-header-inner">
             <a href="/chat" class="dash-logo">
                 <div class="dash-logo-mark">D</div>
@@ -793,7 +797,7 @@
         </div>
     </div>
 
-    <div class="page-main">
+    <div class="page-main" role="main" id="main">
         <div class="page-title-row">
             <div>
                 <h1 class="page-title">Change Governance</h1>
@@ -857,11 +861,11 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>Title</label>
+                    <label for="changeTitle">Title</label>
                     <input type="text" class="form-input" id="changeTitle" placeholder="e.g. Stop idle dev instance">
                 </div>
                 <div class="form-group">
-                    <label>Action Type</label>
+                    <label for="changeAction">Action Type</label>
                     <select class="form-select" id="changeAction" onchange="updateRiskPreview()">
                         <option value="">Select action...</option>
                         <option value="stop">Stop</option>
@@ -876,7 +880,7 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Resource Type</label>
+                    <label for="changeResourceType">Resource Type</label>
                     <select class="form-select" id="changeResourceType" onchange="updateRiskPreview()">
                         <option value="">Select type...</option>
                         <option value="ec2">EC2 Instance</option>
@@ -890,15 +894,15 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Resource ID (optional)</label>
+                    <label for="changeResourceId">Resource ID (optional)</label>
                     <input type="text" class="form-input" id="changeResourceId" placeholder="e.g. i-0abc123def456">
                 </div>
                 <div class="form-group">
-                    <label>Resource Name (optional)</label>
+                    <label for="changeResourceName">Resource Name (optional)</label>
                     <input type="text" class="form-input" id="changeResourceName" placeholder="e.g. dev-api-server">
                 </div>
                 <div class="form-group">
-                    <label>Description</label>
+                    <label for="changeDescription">Description</label>
                     <textarea class="form-textarea" id="changeDescription" placeholder="Why is this change needed?"></textarea>
                 </div>
                 <div class="risk-preview" id="riskPreview" style="display:none;">
@@ -995,7 +999,7 @@
                 updateStats(data);
             } catch (e) {
                 document.getElementById('changesContent').innerHTML =
-                    '<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01M5.07 19h13.86c1.5 0 2.47-1.6 1.73-2.87L13.73 4.26c-.74-1.27-2.72-1.27-3.46 0L3.34 16.13C2.6 17.4 3.57 19 5.07 19z" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3>Error loading changes</h3><p>' + e.message + '</p></div>';
+                    '<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01M5.07 19h13.86c1.5 0 2.47-1.6 1.73-2.87L13.73 4.26c-.74-1.27-2.72-1.27-3.46 0L3.34 16.13C2.6 17.4 3.57 19 5.07 19z" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h2>Error loading changes</h2><p>' + e.message + '</p></div>';
             }
         }
 
@@ -1036,7 +1040,7 @@
                 document.getElementById('changesContent').innerHTML =
                     '<div class="empty-state">' +
                     '<div class="empty-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
-                    '<h3>No changes found</h3>' +
+                    '<h2>No changes found</h2>' +
                     '<p>' + (currentFilter ? 'No changes with status "' + currentFilter + '". Try a different filter.' : 'Create your first infrastructure change request to get started with governed deployments.') + '</p>' +
                     (currentFilter === 'pending' ? '<p>Actions the agent asked to run from chat wait on the <a href="/approvals">Approvals</a> page, not here.</p>' : '') +
                     (currentFilter ? '' : '<button class="btn btn-primary" onclick="openCreateModal()">New Change Request</button>') +
@@ -1347,5 +1351,6 @@
         // ── Init ──
         fetchChanges();
     </script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

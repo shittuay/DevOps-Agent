@@ -22,8 +22,8 @@
       --cyan:      #00CFFF;
       --green:     #00FF9D;
       --text:      #E2EAF8;
-      --text2:     #6B7A99;
-      --text3:     #3D4F72;
+      --text2:     #8B97B3;
+      --text3:     #76849F;
       --mono:      'DM Mono', monospace;
       --display:   'Bebas Neue', sans-serif;
       --body:      'Epilogue', sans-serif;
@@ -100,7 +100,7 @@
       font-family: var(--mono);
       font-size: 14px;
       font-weight: 500;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
     }
 
     .nav-logo-text {
@@ -154,7 +154,7 @@
       font-family: var(--body);
       font-size: 13px;
       font-weight: 700;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       background: var(--orange);
       border: none;
       border-radius: 6px;
@@ -291,7 +291,7 @@
       font-family: var(--body);
       font-size: 15px;
       font-weight: 700;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       background: var(--orange);
       border: none;
       border-radius: 8px;
@@ -650,7 +650,7 @@
       place-items: center;
       font-family: var(--mono);
       font-size: 11px;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       font-weight: 500;
     }
 
@@ -757,7 +757,7 @@
       background: var(--orange);
       border: none;
       border-radius: 8px;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
@@ -871,7 +871,7 @@
       font-family: var(--mono);
       font-size: 10px;
       letter-spacing: .08em;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       text-transform: uppercase;
       margin-bottom: 16px;
     }
@@ -976,7 +976,7 @@
 
     .price-cta-solid {
       background: var(--orange);
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       border: none;
       box-shadow: 0 0 24px rgba(255,77,28,.2);
     }
@@ -1214,6 +1214,7 @@
     <a href="/signup" class="btn-primary">Start Free</a>
   </div>
 </nav>
+<main id="main">
 
 <!-- ── HERO ──────────────────────────────────────────────── -->
 <section class="hero">
@@ -1822,6 +1823,7 @@
 </section>
 
 <!-- ── FOOTER ─────────────────────────────────────────────── -->
+</main>
 <footer>
   <div style="display:flex;align-items:center;gap:12px;">
     <div class="nav-logo-icon">>_</div>
@@ -1861,6 +1863,11 @@
     }, { threshold: 0.1 });
 
     document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+    // A keyboard user can Tab into a section before it has faded in; show it at once.
+    document.addEventListener('focusin', (e) => {
+      const section = e.target.closest && e.target.closest('.reveal');
+      if (section) section.classList.add('visible');
+    });
   }
 
   // ── Counter animation ───────────────────────────────────
@@ -1914,5 +1921,6 @@
     applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
   });
 </script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

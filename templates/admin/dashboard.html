@@ -76,7 +76,7 @@
         }
         .btn {
             background: var(--accent-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             padding: 0.5rem 1rem;
             border-radius: 6px;
@@ -277,5 +277,6 @@
         </div>
     </div>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

@@ -20,7 +20,7 @@
                     {{ membership.organization.name[0]|upper }}
                 </div>
                 <div class="org-info">
-                    <h3>{{ membership.organization.name }}</h3>
+                    <h2>{{ membership.organization.name }}</h2>
                     <span class="org-slug">@{{ membership.organization.slug }}</span>
                 </div>
             </div>
@@ -50,7 +50,7 @@
     {% else %}
     <div class="empty-state">
         <i class="fas fa-building"></i>
-        <h3>No Organizations</h3>
+        <h2>No Organizations</h2>
         <p>You haven't joined any organizations yet. Create one to start collaborating with your team.</p>
         <a href="{{ url_for('organizations.create_organization') }}" class="btn btn-primary">Create Organization</a>
     </div>
@@ -116,7 +116,7 @@
     color: white;
 }
 
-.org-info h3 {
+.org-info h2, .org-info h3 {
     margin: 0;
     color: var(--text-primary);
     font-size: 18px;
@@ -202,7 +202,7 @@
     margin-bottom: 20px;
 }
 
-.empty-state h3 {
+.empty-state h2, .empty-state h3 {
     margin: 0 0 10px;
     color: var(--text-primary);
 }
