@@ -100,7 +100,7 @@
 
         .theme-toggle-btn.active {
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             box-shadow: 0 4px 16px rgba(255, 107, 53, 0.4);
         }
 
@@ -187,7 +187,7 @@
 
         .collapse-toggle:hover {
             background: var(--accent-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             transform: scale(1.1);
             box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
         }
@@ -241,7 +241,7 @@
             font-family: 'IBM Plex Mono', monospace;
             font-weight: 700;
             font-size: 13px;
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             flex-shrink: 0;
             box-shadow: 0 4px 12px rgba(255, 107, 53, 0.35);
         }
@@ -273,7 +273,7 @@
             width: 100%;
             padding: 9px 14px;
             background: var(--accent-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             border-radius: 8px;
             font-family: 'Outfit', sans-serif;
@@ -324,6 +324,10 @@
             opacity: 0;
             width: 0;
             height: 0;
+        }
+        .toggle-switch input:focus-visible + .toggle-slider {
+            outline: 2px solid var(--accent-primary);
+            outline-offset: 2px;
         }
         .toggle-slider {
             position: absolute;
@@ -721,7 +725,7 @@
             cursor: pointer;
             transition: all 0.2s ease;
             font-size: 16px;
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             text-decoration: none;
         }
 
@@ -809,7 +813,7 @@
 
         .message.agent .message-avatar {
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             box-shadow: 0 2px 6px rgba(255,107,53,0.3);
         }
 
@@ -1080,7 +1084,7 @@
 
         .model-toggle-btn.active {
             background: var(--accent-primary);
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
             box-shadow: 0 2px 8px rgba(255, 107, 53, 0.3);
         }
 
@@ -1125,7 +1129,7 @@
 
         #sendButton {
             background: var(--accent-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             border-radius: 8px;
             padding: 8px 18px;
@@ -1542,12 +1546,15 @@
             transform: translateY(-8px);
             opacity: 0;
             pointer-events: none;
-            transition: transform .18s ease, opacity .18s ease;
+            visibility: hidden;
+            transition: transform .18s ease, opacity .18s ease, visibility 0s linear .18s;
         }
         .notif-panel.open {
             transform: translateY(0);
             opacity: 1;
             pointer-events: all;
+            visibility: visible;
+            transition: transform .18s ease, opacity .18s ease, visibility 0s;
         }
         .notif-panel-header {
             display: flex;
@@ -1681,11 +1688,14 @@
             justify-content: center;
             opacity: 0;
             pointer-events: none;
-            transition: opacity .2s;
+            visibility: hidden;
+            transition: opacity .2s, visibility 0s linear .2s;
         }
         .safety-modal-overlay.open {
             opacity: 1;
             pointer-events: all;
+            visibility: visible;
+            transition: opacity .2s, visibility 0s;
         }
         .safety-modal {
             background: var(--bg-secondary);
@@ -1933,7 +1943,7 @@
             width: 100%;
             padding: 16px 24px;
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             border-radius: 12px;
             font-family: 'Outfit', sans-serif;
@@ -2170,7 +2180,7 @@
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
     <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
+    <div class="sidebar" id="sidebar" role="region" aria-label="Sessions and settings">
         <button class="collapse-toggle" id="collapseToggle" onclick="toggleSidebarCollapse()" title="Collapse sidebar">
             ◀
         </button>
@@ -2216,13 +2226,14 @@
     </div>
 
     <!-- Main Content -->
-    <div class="main-content">
+    <div class="main-content" role="main" id="main">
+        <h1 class="sr-only">DevOps Agent chat</h1>
         <!-- Header -->
         <div class="header">
             <div class="header-content">
                 <!-- Left: mobile toggle only -->
                 <div class="header-left">
-                    <button class="mobile-menu-button" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
+                    <button type="button" class="mobile-menu-button" onclick="toggleSidebar()" aria-label="Open sessions menu"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
                 </div>
 
                 <!-- Center: primary nav | separator | secondary nav -->
@@ -2317,7 +2328,8 @@
         <div class="chat-outer-container">
             <div class="chat-box">
                 <div class="chat-wrapper" id="chatWrapper">
-                    <div class="chat-container" id="chatContainer">
+                    <div class="sr-only" id="replyAnnouncer" role="status" aria-live="polite"></div>
+                    <div class="chat-container" id="chatContainer" role="region" aria-label="Conversation">
                         <div class="welcome">
                             <div class="welcome-icon"><div class="logo-icon" style="width:60px;height:60px;border-radius:14px;font-size:18px;margin:0 auto;box-shadow:0 8px 24px rgba(255,107,53,0.3);">&gt;_</div></div>
                             <h2>Your DevOps Command Center</h2>
@@ -3171,6 +3183,22 @@
             const button = document.getElementById('sendButton');
             button.disabled = disabled;
             button.textContent = disabled ? 'Sending...' : 'Send';
+            announceReply(disabled);
+        }
+
+        // Screen readers aren't told about text that streams into the page, so say when a
+        // reply starts and read it once it's complete.
+        function announceReply(working) {
+            const live = document.getElementById('replyAnnouncer');
+            if (!live) return;
+            if (working) { live.textContent = 'Working on it.'; return; }
+            const replies = document.querySelectorAll('#chatContainer .message.agent .message-text');
+            const last = replies.length ? replies[replies.length - 1].innerText.trim() : '';
+            if (!last) return;
+            live.textContent = '';
+            setTimeout(() => {
+                live.textContent = 'Reply: ' + (last.length > 600 ? last.slice(0, 600) + '... The full reply is in the conversation.' : last);
+            }, 100);
         }
 
         // ===== CRISIS RESPONSE HANDLER =====
@@ -3429,7 +3457,7 @@
                     <div class="message-text">
                         <div style="background: var(--glass-bg); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 28px; max-width: 480px;">
                             <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border-subtle);">
-                                <div style="width: 56px; height: 56px; background: var(--gradient-primary); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 28px; color: white; box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);">D</div>
+                                <div style="width: 56px; height: 56px; background: var(--gradient-primary); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 28px; color: var(--on-accent, #0a0e1a); box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);">D</div>
                                 <div>
                                     <div style="font-family: 'Syne', sans-serif; font-size: 24px; font-weight: 800; background: linear-gradient(135deg, var(--accent-primary), var(--accent-electric)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">DevOps Agent</div>
                                     <div style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: var(--text-tertiary); letter-spacing: 1px;">AI-POWERED AUTOMATION</div>
@@ -4151,13 +4179,32 @@
                 const riskEl = document.getElementById('safetyModalRisk');
                 riskEl.textContent = riskLevel.toUpperCase() + ' RISK';
                 riskEl.className = 'safety-modal-risk risk-' + riskLevel.toLowerCase();
+                _safetyReturnFocus = document.activeElement;
                 document.getElementById('safetyModalOverlay').classList.add('open');
+                // Start on Cancel, so a stray Enter never confirms a risky action.
+                setTimeout(() => { const c = document.querySelector('.safety-modal-cancel'); if (c) c.focus(); }, 50);
             });
         }
+
+        let _safetyReturnFocus = null;
+        document.addEventListener('keydown', (e) => {
+            const overlay = document.getElementById('safetyModalOverlay');
+            if (!overlay || !overlay.classList.contains('open')) return;
+            if (e.key === 'Escape') { e.preventDefault(); safetyModalRespond(false); return; }
+            if (e.key === 'Tab') {
+                // Keep Tab inside the dialog while it is open.
+                const items = [...overlay.querySelectorAll('button')];
+                const i = items.indexOf(document.activeElement);
+                e.preventDefault();
+                items[(i + (e.shiftKey ? items.length - 1 : 1)) % items.length].focus();
+            }
+        });
 
         function safetyModalRespond(confirmed) {
             document.getElementById('safetyModalOverlay').classList.remove('open');
             if (_safetyResolve) { _safetyResolve(confirmed); _safetyResolve = null; }
+            if (_safetyReturnFocus && _safetyReturnFocus.focus) { try { _safetyReturnFocus.focus(); } catch (_) {} }
+            _safetyReturnFocus = null;
         }
 
         // ── Notification inbox ──────────────────────────────────────────────
@@ -4500,6 +4547,7 @@
             if (att.isImage) {
                 const img = document.createElement('img');
                 img.src = att.data;
+                img.alt = '';  // decorative: the file name is shown next to it
                 badge.appendChild(img);
             }
             const nameSpan = document.createElement('span');
@@ -4508,8 +4556,10 @@
             badge.appendChild(nameSpan);
             const rmBtn = document.createElement('button');
             rmBtn.className = 'attachment-remove';
+            rmBtn.type = 'button';
             rmBtn.textContent = '×';
             rmBtn.title = 'Remove';
+            rmBtn.setAttribute('aria-label', 'Remove ' + att.name);
             rmBtn.onclick = function() {
                 _pendingAttachments[idx] = null;
                 badge.remove();
@@ -4548,20 +4598,20 @@
 
     <!-- Safety Confirmation Modal (Feature 2) -->
     <div class="safety-modal-overlay" id="safetyModalOverlay">
-        <div class="safety-modal">
-            <div class="safety-modal-title">⚠️ Confirm Operation</div>
+        <div class="safety-modal" role="alertdialog" aria-modal="true" aria-labelledby="safetyModalTitle" aria-describedby="safetyModalDesc">
+            <div class="safety-modal-title" id="safetyModalTitle"><span aria-hidden="true">⚠️</span> Confirm Operation</div>
             <div class="safety-modal-body" id="safetyModalDesc">This operation requires confirmation.</div>
             <div class="safety-modal-tool" id="safetyModalTool"></div>
             <div><span class="safety-modal-risk" id="safetyModalRisk"></span></div>
             <div class="safety-modal-actions">
-                <button class="safety-modal-cancel" onclick="safetyModalRespond(false)">Cancel</button>
-                <button class="safety-modal-confirm" onclick="safetyModalRespond(true)">Confirm</button>
+                <button type="button" class="safety-modal-cancel" onclick="safetyModalRespond(false)">Cancel</button>
+                <button type="button" class="safety-modal-confirm" onclick="safetyModalRespond(true)">Confirm</button>
             </div>
         </div>
     </div>
 
     <!-- Notification Panel -->
-    <div class="notif-panel" id="notifPanel">
+    <div class="notif-panel" id="notifPanel" role="region" aria-label="Notifications">
         <div class="notif-panel-header">
             <span>Notifications</span>
             <div class="notif-panel-actions">
@@ -4635,5 +4685,6 @@
 
 {% if ios_app %}<script src="{{ url_for('static', filename='js/vendor/capacitor-8.5.3.js') }}" defer></script><script src="{{ url_for('static', filename='js/native_app.js') }}" defer></script>{% endif %}
 {% if ios_app %}<script src="{{ url_for('static', filename='js/ai_consent.js') }}" defer></script>{% endif %}
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

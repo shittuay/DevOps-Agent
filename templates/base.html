@@ -97,7 +97,7 @@
             align-items: center;
             justify-content: center;
             font-family: 'IBM Plex Mono', monospace;
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             font-weight: 700;
             font-size: 18px;
             box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
@@ -176,7 +176,7 @@
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 20px;
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             text-decoration: none;
             box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
         }
@@ -285,7 +285,7 @@
 
         .btn-primary {
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
         }
@@ -616,7 +616,8 @@
     </style>
 </head>
 <body class="animated-bg" data-signed-in="{{ '1' if current_user.is_authenticated else '0' }}" data-ai-consent="{{ '1' if current_user.is_authenticated and current_user.ai_consent_at else '0' }}">
-    <div class="header">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
         <div class="header-content">
             <div class="header-left">
                 <a href="/chat" class="logo">
@@ -625,13 +626,13 @@
                 </a>
             </div>
             <button class="mobile-nav-toggle" id="mobileNavToggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
-            <div class="header-right">
+            <nav class="header-right" aria-label="Main">
                 <a href="/chat" class="header-button{% if request.path.startswith('/chat') %} active{% endif %}"><i class="fa-solid fa-terminal"></i> Chat</a>
                 <a href="/dashboard" class="header-button{% if request.path.startswith('/dashboard') %} active{% endif %}"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
                 <a href="/workflows" class="header-button{% if request.path.startswith('/workflows') %} active{% endif %}"><i class="fa-solid fa-diagram-project"></i> Workflows</a>
                 {% if current_user.is_authenticated %}
                 <a href="/approvals" class="header-button" id="approvalsNavBtn" style="position:relative;">
-                    <span>&#9203;</span> Approvals
+                    <span aria-hidden="true">&#9203;</span> Approvals
                     <!-- Hidden until the count fetch below finds pending approvals, which
                          sets display:flex itself. A second inline display:flex here used to
                          override the display:none and show an empty badge on every page. -->
@@ -651,28 +652,28 @@
                 {% if current_user.is_authenticated %}
                 <div class="account-menu" id="accountMenu">
                     <button type="button" class="profile-button" id="accountMenuButton" title="Account" aria-haspopup="true" aria-expanded="false" aria-controls="accountMenuList"><i class="fa-solid fa-user"></i><span class="account-menu-label">Account</span></button>
-                    <div class="account-menu-list" id="accountMenuList" role="menu">
+                    <div class="account-menu-list" id="accountMenuList">
                         <div class="account-menu-who">{{ current_user.full_name or current_user.username }}<span>{{ current_user.email }}</span></div>
                         <div class="theme-choice" data-theme-menu role="group" aria-label="Theme">
                             <span class="theme-choice-label">Theme</span>
                             <button type="button" class="theme-choice-btn" data-theme="light"><i class="fa-solid fa-sun"></i> Light</button>
                             <button type="button" class="theme-choice-btn" data-theme="dark"><i class="fa-solid fa-moon"></i> Dark</button>
                         </div>
-                        <a role="menuitem" href="/settings"{% if request.path.startswith('/settings') %} class="active"{% endif %}><i class="fa-solid fa-gear"></i> Settings</a>
-                        {% if not ios_app %}<a role="menuitem" href="/billing"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits</a>{% endif %}
-                        <a role="menuitem" href="/organizations/"><i class="fa-solid fa-users"></i> Teams</a>
-                        <a role="menuitem" href="/logout" class="account-menu-logout"><i class="fa-solid fa-right-from-bracket"></i> Log out</a>
+                        <a href="/settings"{% if request.path.startswith('/settings') %} class="active"{% endif %}><i class="fa-solid fa-gear"></i> Settings</a>
+                        {% if not ios_app %}<a href="/billing"><i class="fa-solid fa-credit-card"></i> Billing &amp; credits</a>{% endif %}
+                        <a href="/organizations/"><i class="fa-solid fa-users"></i> Teams</a>
+                        <a href="/logout" class="account-menu-logout"><i class="fa-solid fa-right-from-bracket"></i> Log out</a>
                     </div>
                 </div>
                 {% endif %}
-            </div>
+            </nav>
         </div>
-    </div>
+    </header>
 
     {% block main %}
-    <div class="main-content">
+    <main class="main-content" id="main" tabindex="-1">
         {% block content %}{% endblock %}
-    </div>
+    </main>
     {% endblock %}
 
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
@@ -722,5 +723,6 @@
     </script>
 {% if ios_app %}<script src="{{ url_for('static', filename='js/vendor/capacitor-8.5.3.js') }}" defer></script><script src="{{ url_for('static', filename='js/native_app.js') }}" defer></script>{% endif %}
 {% if ios_app %}<script src="{{ url_for('static', filename='js/ai_consent.js') }}" defer></script>{% endif %}
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

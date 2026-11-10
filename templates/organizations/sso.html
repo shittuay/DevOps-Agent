@@ -55,7 +55,7 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                 <div class="form-group">
-                    <label>Identity Provider</label>
+                    <label for="provider">Identity Provider</label>
                     <select name="provider" id="provider" class="form-control" required>
                         <option value="">Select provider…</option>
                         <option value="generic_oidc" {{ 'selected' if sso_config.provider == 'generic_oidc' else '' }}>Generic OIDC (Okta, Auth0, …)</option>
@@ -67,23 +67,23 @@
                 </div>
 
                 <div class="form-group prov-field" data-for="generic_oidc">
-                    <label>Discovery / Metadata URL</label>
-                    <input type="url" name="metadata_url" class="form-control"
+                    <label for="field-metadata-url">Discovery / Metadata URL</label>
+                    <input id="field-metadata-url" type="url" name="metadata_url" class="form-control"
                            placeholder="https://idp.example.com/.well-known/openid-configuration"
                            value="{{ sso_config.metadata_url or '' }}">
                 </div>
 
                 <div class="form-group prov-field" data-for="azure">
-                    <label>Azure Tenant ID</label>
-                    <input type="text" name="tenant_id" class="form-control"
+                    <label for="field-tenant-id">Azure Tenant ID</label>
+                    <input id="field-tenant-id" type="text" name="tenant_id" class="form-control"
                            placeholder="00000000-0000-0000-0000-000000000000"
                            value="{{ sso_config.tenant_id or '' }}">
                 </div>
 
                 <!-- OIDC / OAuth2 credentials (hidden for SAML) -->
                 <div class="form-group oidc-field">
-                    <label>Client ID</label>
-                    <input type="text" name="client_id" class="form-control"
+                    <label for="field-client-id">Client ID</label>
+                    <input id="field-client-id" type="text" name="client_id" class="form-control"
                            value="{{ sso_config.client_id or '' }}">
                 </div>
                 <div class="form-group oidc-field">
@@ -100,14 +100,14 @@
 
                 <!-- SAML 2.0 fields -->
                 <div class="form-group prov-field" data-for="saml">
-                    <label>IdP Entity ID (Issuer)</label>
-                    <input type="text" name="idp_entity_id" class="form-control"
+                    <label for="field-idp-entity-id">IdP Entity ID (Issuer)</label>
+                    <input id="field-idp-entity-id" type="text" name="idp_entity_id" class="form-control"
                            placeholder="https://idp.example.com/saml/metadata"
                            value="{{ sso_config.idp_entity_id or '' }}">
                 </div>
                 <div class="form-group prov-field" data-for="saml">
-                    <label>IdP SSO URL</label>
-                    <input type="url" name="idp_sso_url" class="form-control"
+                    <label for="field-idp-sso-url">IdP SSO URL</label>
+                    <input id="field-idp-sso-url" type="url" name="idp_sso_url" class="form-control"
                            placeholder="https://idp.example.com/sso/saml"
                            value="{{ sso_config.idp_sso_url or '' }}">
                 </div>
@@ -118,8 +118,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Default role for new members</label>
-                    <select name="default_role" class="form-control">
+                    <label for="field-default-role">Default role for new members</label>
+                    <select id="field-default-role" name="default_role" class="form-control">
                         {% for r in ['member', 'viewer', 'admin'] %}
                         <option value="{{ r }}" {{ 'selected' if sso_config.default_role == r else '' }}>{{ r|capitalize }}</option>
                         {% endfor %}

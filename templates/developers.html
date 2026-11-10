@@ -9,6 +9,20 @@
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
     <style>
+        /* Status colors that keep 4.5:1 contrast in both themes. */
+        :root { --ok-text: #00d278; --err-text: #f87171; --info-text: #00d4ff; }
+        [data-theme="light"] { --ok-text: #047857; --err-text: #b91c1c; --info-text: #0369a1; --accent-electric: #0369a1; }
+        [data-theme="light"] .code-block .copy-btn { color: #cbd5e1; }
+        [data-theme="light"] .tier-badge { color: #6d28d9 !important; }
+        [data-theme="light"] .method-get, [data-theme="light"] .hl-key { color: var(--info-text); }
+        /* Code samples keep their dark background in light mode, so the syntax colors stay readable. */
+        [data-theme="light"] .code-block { background: #0f172a; }
+        [data-theme="light"] .code-block pre { color: #e2e8f0; background: #0f172a; }
+        [data-theme="light"] .code-block .code-lang { color: #94a3b8; }
+        [data-theme="light"] .code-block .hl-comment { color: #94a3b8; }
+        [data-theme="light"] .code-block .hl-key { color: #00d4ff; }
+        [data-theme="light"] .code-block .hl-accent { color: #ff8c5a; }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
@@ -60,7 +74,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
             font-family: 'IBM Plex Mono', monospace;
             font-weight: 700;
             font-size: 18px;
@@ -96,7 +110,7 @@
         .btn-getkey {
             padding: 8px 18px;
             background: var(--gradient-primary);
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
             border-radius: 8px;
             font-size: 13px;
             font-weight: 700;
@@ -176,7 +190,7 @@
         }
 
         .method-get  { background: rgba(0,212,255,0.15); color: var(--accent-electric); }
-        .method-post { background: rgba(0,210,120,0.15); color: #00d278; }
+        .method-post { background: rgba(0,210,120,0.15); color: var(--ok-text); }
 
         /* Main content */
         .content {
@@ -733,14 +747,14 @@ Retry-After: 3600</pre>
                         <tr>
                             <td><span class="tier-name">Professional</span> <small style="color:var(--text-tertiary);">$99/mo</small></td>
                             <td style="color:var(--text-secondary);">Key rate limit</td>
-                            <td style="color:#00d278;">Full agent + streaming</td>
-                            <td style="color:#00d278;">Yes</td>
+                            <td style="color:var(--ok-text);">Full agent + streaming</td>
+                            <td style="color:var(--ok-text);">Yes</td>
                         </tr>
                         <tr>
                             <td><span class="tier-name">Business</span> <small style="color:var(--text-tertiary);">$299/mo</small></td>
                             <td style="color:var(--text-secondary);">Key rate limit</td>
-                            <td style="color:#00d278;">Full agent + streaming</td>
-                            <td style="color:#00d278;">Yes</td>
+                            <td style="color:var(--ok-text);">Full agent + streaming</td>
+                            <td style="color:var(--ok-text);">Yes</td>
                         </tr>
                     </tbody>
                 </table>
@@ -782,7 +796,7 @@ Retry-After: 3600</pre>
                             <td style="color:var(--text-secondary);font-size:14px;">Check <code>Retry-After</code> header</td>
                         </tr>
                         <tr>
-                            <td style="font-family:'IBM Plex Mono',monospace;color:#ef4444;">500</td>
+                            <td style="font-family:'IBM Plex Mono',monospace;color:var(--err-text);">500</td>
                             <td style="font-family:'IBM Plex Mono',monospace;font-size:13px;">Agent error / Tool execution failed</td>
                             <td style="color:var(--text-secondary);font-size:14px;">See <code>detail</code> field in response body</td>
                         </tr>
@@ -1374,5 +1388,6 @@ result = httpx.post(
 
     sections.forEach(s => observer.observe(s));
 </script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

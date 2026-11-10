@@ -37,7 +37,7 @@ body {
     background: var(--gradient-primary);
     border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
-    color: white; font-weight: 700; font-size: 15px;
+    color: var(--on-accent, #0a0e1a); font-weight: 700; font-size: 15px;
     font-family: 'IBM Plex Mono', monospace;
 }
 .logo-text {
@@ -259,7 +259,7 @@ body {
 </style>
 </head>
 <body>
-<div class="header">
+<div class="header" role="banner">
     <div class="logo-section">
         <div class="logo-icon">>_</div>
         <span class="logo-text">DevOps Agent</span>
@@ -271,6 +271,7 @@ body {
     </nav>
 </div>
 
+<main id="main">
 <div class="hero">
     <p class="hero-eyebrow">Learning Roadmap</p>
     <h1 class="hero-title">DevOps Engineer <span>Curriculum</span></h1>
@@ -373,5 +374,7 @@ body {
 </div>
 
 <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</main>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

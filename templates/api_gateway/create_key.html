@@ -11,8 +11,8 @@
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
-                    <label>Key Name:</label>
-                    <input type="text" name="name" class="form-control" required placeholder="My API Key">
+                    <label for="field-name">Key Name:</label>
+                    <input id="field-name" type="text" name="name" class="form-control" required placeholder="My API Key">
                 </div>
                 <div class="form-group">
                     <label>Scopes:</label>
@@ -23,8 +23,8 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>Expires (optional):</label>
-                    <input type="date" name="expires_at" class="form-control">
+                    <label for="field-expires-at">Expires (optional):</label>
+                    <input id="field-expires-at" type="date" name="expires_at" class="form-control">
                 </div>
                 <button type="submit" class="btn btn-primary">Create Key</button>
             </form>

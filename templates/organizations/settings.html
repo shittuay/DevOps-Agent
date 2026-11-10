@@ -12,16 +12,16 @@
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
-                    <label>Organization Name:</label>
-                    <input type="text" name="name" class="form-control" value="{{ organization.name }}" required>
+                    <label for="field-name">Organization Name:</label>
+                    <input id="field-name" type="text" name="name" class="form-control" value="{{ organization.name }}" required>
                 </div>
                 <div class="form-group">
-                    <label>Description:</label>
-                    <textarea name="description" class="form-control" rows="3">{{ organization.description or '' }}</textarea>
+                    <label for="field-description">Description:</label>
+                    <textarea id="field-description" name="description" class="form-control" rows="3">{{ organization.description or '' }}</textarea>
                 </div>
                 <div class="form-group">
-                    <label>Billing Email:</label>
-                    <input type="email" name="billing_email" class="form-control" value="{{ organization.billing_email or '' }}">
+                    <label for="field-billing-email">Billing Email:</label>
+                    <input id="field-billing-email" type="email" name="billing_email" class="form-control" value="{{ organization.billing_email or '' }}">
                 </div>
                 <button type="submit" class="btn btn-primary">Save Changes</button>
             </form>

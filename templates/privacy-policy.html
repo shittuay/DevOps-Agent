@@ -120,7 +120,7 @@
 
     <h2>3. Who receives it</h2>
     <p>We use these companies to run DevOps Agent. Each receives only what its job needs.</p>
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Companies that receive data">
         <table>
             <tr><th>Company</th><th>What for</th><th>What they receive</th></tr>
             <tr><td>Anthropic</td><td>AI models (Claude)</td><td>Every message is checked for abuse by an Anthropic model before it is answered. On plans that use Claude, your messages, the agent's action results and conversation context.</td></tr>
@@ -195,5 +195,6 @@
         Email: <a href="mailto:support@devopsagent.io">support@devopsagent.io</a></p>
 </main>
 <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

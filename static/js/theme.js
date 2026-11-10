@@ -7,11 +7,9 @@ function setTheme(theme) {
 
     // Update button states (old pill buttons and the profile-menu Light/Dark choice)
     document.querySelectorAll('.theme-toggle-btn, .theme-choice-btn').forEach(btn => {
-        if (btn.getAttribute('data-theme') === theme) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
+        const on = btn.getAttribute('data-theme') === theme;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
 }
 
@@ -28,16 +26,17 @@ function addThemeToggle() {
 
     const toggle = document.createElement('div');
     toggle.className = 'theme-toggle theme-toggle-floating';
-    toggle.setAttribute('role', 'group');
+    // A labelled region, so screen readers don't report it as stray content outside the page's landmarks.
+    toggle.setAttribute('role', 'region');
     toggle.setAttribute('aria-label', 'Theme');
     toggle.innerHTML = `
-        <button class="theme-toggle-btn" data-theme="dark" title="Dark Mode">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button type="button" class="theme-toggle-btn" data-theme="dark" title="Dark Mode" aria-label="Dark mode">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
             </svg>
         </button>
-        <button class="theme-toggle-btn" data-theme="light" title="Light Mode">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button type="button" class="theme-toggle-btn" data-theme="light" title="Light Mode" aria-label="Light mode">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="5"></circle>
                 <line x1="12" y1="1" x2="12" y2="3"></line>
                 <line x1="12" y1="21" x2="12" y2="23"></line>
