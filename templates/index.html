@@ -4547,6 +4547,7 @@
             if (att.isImage) {
                 const img = document.createElement('img');
                 img.src = att.data;
+                img.alt = '';  // decorative: the file name is shown next to it
                 badge.appendChild(img);
             }
             const nameSpan = document.createElement('span');
@@ -4555,8 +4556,10 @@
             badge.appendChild(nameSpan);
             const rmBtn = document.createElement('button');
             rmBtn.className = 'attachment-remove';
+            rmBtn.type = 'button';
             rmBtn.textContent = '×';
             rmBtn.title = 'Remove';
+            rmBtn.setAttribute('aria-label', 'Remove ' + att.name);
             rmBtn.onclick = function() {
                 _pendingAttachments[idx] = null;
                 badge.remove();
