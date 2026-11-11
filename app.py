@@ -4983,6 +4983,15 @@ def remove_shortcut(shortcut):
 
 # ===== LEARNING MODE API =====
 
+# Proficiency domains the learning pages know about. The session summary's deltas come from a
+# model reading the transcript (which includes cloud tool output), so only these keys and a
+# bounded gain per session are kept.
+PROFICIENCY_DOMAINS = frozenset({'aws', 'kubernetes', 'azure', 'gcp', 'devops', 'cicd',
+                                 'terraform', 'docker', 'linux', 'networking', 'security',
+                                 'monitoring'})
+PROFICIENCY_MAX_DELTA = 10
+
+
 @app.route('/api/learning/session-summary', methods=['POST'])
 @login_required
 def learning_session_summary():
@@ -5056,9 +5065,15 @@ Transcript:
 
         if prefs:
             levels = prefs.learning_level if isinstance(prefs.learning_level, dict) else {}
-            for domain, delta in summary_data.get('proficiency_deltas', {}).items():
-                current = levels.get(domain, 0)
-                levels[domain] = min(100, current + int(delta))
+            deltas = summary_data.get('proficiency_deltas')
+            for domain, delta in (deltas.items() if isinstance(deltas, dict) else []):
+                if domain not in PROFICIENCY_DOMAINS:
+                    continue
+                try:
+                    delta = max(0, min(PROFICIENCY_MAX_DELTA, int(delta)))
+                except (TypeError, ValueError):
+                    continue
+                levels[domain] = min(100, int(levels.get(domain, 0) or 0) + delta)
             prefs.learning_level = levels
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(prefs, 'learning_level')
@@ -5172,11 +5187,9 @@ def reset_proficiency():
         initial_levels = data.get('levels', {})
 
         # Validate — only known domains, values 0-100
-        valid_domains = {'aws', 'kubernetes', 'azure', 'gcp', 'devops', 'cicd',
-                         'terraform', 'docker', 'linux', 'networking', 'security', 'monitoring'}
         sanitized = {}
         for domain, val in initial_levels.items():
-            if domain in valid_domains:
+            if domain in PROFICIENCY_DOMAINS:
                 sanitized[domain] = max(0, min(100, int(val)))
 
         prefs = UserPreferences.query.filter_by(user_id=current_user.id).first()
