@@ -19,6 +19,7 @@ AI_ENDPOINTS = (
     '/api/chat/stream',
     '/curriculum/api/ai-guide',
     '/curriculum/api/quiz/generate',
+    '/api/learning/session-summary',
 )
 
 # Who receives the data; shown on the consent screen and in Settings. Keep in step with the

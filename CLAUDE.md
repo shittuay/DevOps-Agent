@@ -2269,7 +2269,16 @@ Still open from that review (not fixed): org invitations join on GET and aren't 
 setup marks the email verified; login messages reveal which
 accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
 `query_bigquery` unclassified; `*_api_read` can read secret
-values; stored XSS in Settings > Learning and the map's `esc()`.
+values; the map's `esc()`.
+
+2026-11-11 scheduled review: **Settings > Learning escapes the session summary** (summary,
+topics, key lessons, domain labels went into `innerHTML` raw; the summary is Haiku output from a
+transcript that includes cloud tool results, so a crafted resource tag could plant script).
+`/api/learning/session-summary` keeps only `PROFICIENCY_DOMAINS` (shared with
+`reset-proficiency`), clamps each gain to 0..`PROFICIENCY_MAX_DELTA` (10), and skips
+non-numeric deltas (one used to 500 the whole summary). It also sends the transcript to
+Anthropic, so it is now in `AI_ENDPOINTS` and the app's consent screen. Guard:
+`tests/test_learning_summary_hardening.py`.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
@@ -2541,7 +2550,8 @@ under the new version name and update both templates**; the test fails otherwise
 **Not yet built on a real device** (generated on Linux); Capacitor documents `server.url` as not
 for production and Apple's 4.2 "just a website" rule is the main review risk.
 **AI data-sharing consent** (2026-11-02, Apple 5.1.2(i)): in the app, the first POST to an AI
-endpoint (`services/ai_consent.AI_ENDPOINTS`: both chat routes, the Learn coach and quiz generator)
+endpoint (`services/ai_consent.AI_ENDPOINTS`: both chat routes, the Learn coach and quiz generator, and
+the learning-session summary)
 opens a "Before you chat" screen (`static/js/ai_consent.js`, wraps `fetch`) naming what is sent and
 to whom. Allow sets `User.ai_consent_at` (`POST /api/ai-consent`; `DELETE` withdraws, also from
 Settings > Profile > AI data sharing, app only). A before-request hook returns 403

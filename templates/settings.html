@@ -2059,9 +2059,9 @@
                     };
                     keys.sort((a, b) => levels[b] - levels[a]);
                     keys.forEach(domain => {
-                        const pct = Math.min(100, levels[domain]);
+                        const pct = Math.max(0, Math.min(100, Number(levels[domain]) || 0));
                         const color = pct < 30 ? '#ef4444' : pct < 60 ? '#f59e0b' : '#22c55e';
-                        const label = domainLabels[domain] || domain.charAt(0).toUpperCase() + domain.slice(1);
+                        const label = _escBudget(domainLabels[domain] || domain.charAt(0).toUpperCase() + domain.slice(1));
                         const tier = pct < 30 ? 'Beginner' : pct < 60 ? 'Intermediate' : 'Advanced';
                         container.innerHTML += `
                             <div style="display:flex;align-items:center;gap:10px;">
@@ -2073,7 +2073,7 @@
                             </div>`;
                     });
                     if (data.session_count) {
-                        container.innerHTML += `<p style="color:var(--text-tertiary);font-size:0.8rem;margin-top:8px;">${data.session_count} learning session(s) completed</p>`;
+                        container.innerHTML += `<p style="color:var(--text-tertiary);font-size:0.8rem;margin-top:8px;">${Number(data.session_count) || 0} learning session(s) completed</p>`;
                     }
                 })
                 .catch(() => {});
@@ -2087,18 +2087,18 @@
                     container.innerHTML = '';
                     sessions.forEach(s => {
                         const date = s.created_at ? new Date(s.created_at).toLocaleDateString() : '';
-                        const topics = (s.topics_covered || []).join(', ');
-                        const duration = s.duration_minutes ? `${s.duration_minutes}m` : '';
+                        const topics = _escBudget((s.topics_covered || []).join(', '));
+                        const duration = s.duration_minutes ? `${Number(s.duration_minutes) || 0}m` : '';
                         container.innerHTML += `
                             <div style="padding:12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px;">
                                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                                     <span style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">${topics || 'General DevOps'}</span>
                                     <span style="font-size:0.75rem;color:var(--text-tertiary);">${duration ? duration + ' &bull; ' : ''}${date}</span>
                                 </div>
-                                <p style="font-size:0.8rem;color:var(--text-secondary);margin:0 0 6px;line-height:1.4;">${s.summary || 'No summary available'}</p>
+                                <p style="font-size:0.8rem;color:var(--text-secondary);margin:0 0 6px;line-height:1.4;">${_escBudget(s.summary || 'No summary available')}</p>
                                 <div style="display:flex;gap:6px;flex-wrap:wrap;">
                                     ${s.was_sandbox ? '<span style="font-size:0.7rem;padding:2px 6px;background:rgba(99,102,241,0.15);color:#818cf8;border-radius:4px;">Sandbox</span>' : ''}
-                                    ${(s.key_lessons || []).slice(0,2).map(l => `<span style="font-size:0.7rem;padding:2px 6px;background:var(--bg-tertiary);color:var(--text-tertiary);border-radius:4px;">${l.substring(0,40)}${l.length > 40 ? '...' : ''}</span>`).join('')}
+                                    ${(s.key_lessons || []).slice(0,2).map(l => String(l)).map(l => `<span style="font-size:0.7rem;padding:2px 6px;background:var(--bg-tertiary);color:var(--text-tertiary);border-radius:4px;">${_escBudget(l.substring(0,40))}${l.length > 40 ? '...' : ''}</span>`).join('')}
                                 </div>
                             </div>`;
                     });
