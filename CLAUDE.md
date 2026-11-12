@@ -2264,10 +2264,11 @@ A full read-only review found five issues the owner asked to fix first (CLAUDE_R
   `tests/test_api_key_scopes.py`.
 
 2026-10-25 and 2026-10-29 scheduled reviews: `_is_safe_redirect` rejects scheme-without-host (`http:/evil.com`), backslashes and control characters; `terraform_apply` refuses a dash-leading `plan_file`; `/api/run-migration` is admin-only. Guards: `tests/test_safe_redirect.py`, `tests/test_review_2026_10_25.py`.
+2026-11-12 daily review: MCP OAuth requires PKCE S256 for every client, the built-in one included (its secret is published); `/token` refuses a code stored without a challenge and a `redirect_uri` that differs from the authorize request. Guard: `tests/test_mcp_oauth_pkce_required.py`.
 
 Still open from that review (not fixed): org invitations join on GET and aren't bound to an email; TOTP
 setup marks the email verified; login messages reveal which
-accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
+accounts exist; sandbox mode is ignored on `api/v1` and `/v1/agent`;
 `query_bigquery` unclassified; `*_api_read` can read secret
 values; stored XSS in Settings > Learning and the map's `esc()`.
 

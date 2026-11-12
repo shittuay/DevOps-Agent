@@ -33,12 +33,14 @@ Supported JSON-RPC methods:
   ping                    Keepalive
 """
 
+import base64
 import hashlib
 import hmac
 import json
 import logging
 import os
 import queue
+import re
 import secrets
 import threading
 import time
@@ -104,6 +106,9 @@ OAUTH_CLIENT_SECRET = os.environ.get('MCP_OAUTH_CLIENT_SECRET', 'devopsagent-mcp
 # security boundary — the redirect_uri allowlist below is what actually
 # stops an attacker from pointing a victim's authorization code at an
 # attacker-controlled origin (see CLAUDE_RUNBOOK.md's 2026-08-30 entry).
+# RFC 7636 §4.2: an S256 challenge is the 43-char unpadded base64url of a SHA-256 digest.
+_PKCE_CHALLENGE_RE = re.compile(r'[A-Za-z0-9_-]{43}')
+
 _BUILTIN_CLIENT_REDIRECT_URIS = frozenset(
     u.strip() for u in os.environ.get(
         'MCP_OAUTH_BUILTIN_REDIRECT_URIS',
@@ -1280,6 +1285,14 @@ def oauth_authorize():
         return jsonify({'error': 'invalid_request',
                         'error_description': 'redirect_uri does not match a redirect_uri registered for this client_id'}), 400
 
+    # PKCE (S256) is mandatory for every client. The built-in client's secret
+    # is published, so it is no better than a public client, and a code issued
+    # without a challenge could be redeemed by whoever intercepted it with any
+    # code_verifier at all (the token endpoint only checks a stored challenge).
+    if code_challenge_method != 'S256' or not _PKCE_CHALLENGE_RE.fullmatch(code_challenge):
+        return jsonify({'error': 'invalid_request',
+                        'error_description': 'PKCE required: send code_challenge with code_challenge_method=S256'}), 400
+
     def render(error=None, **extra):
         return render_template_string(_AUTHORIZE_HTML,
                                       client_id=client_id,
@@ -1499,17 +1512,22 @@ def oauth_token():
     if not record or time.time() > record['expires']:
         return _token_error('invalid_grant', 'Code expired or invalid')
 
-    # Verify PKCE when a challenge was stored with the auth code.
-    # For public clients code_verifier is mandatory; for confidential clients it's optional.
+    # RFC 6749 §4.1.3: a redirect_uri sent here must match the one the code was issued for.
+    sent_redirect_uri = request.form.get('redirect_uri') or body.get('redirect_uri')
+    if sent_redirect_uri and sent_redirect_uri != record.get('redirect_uri'):
+        return _token_error('invalid_grant', 'redirect_uri does not match the authorization request')
+
+    # PKCE is mandatory for every code (see oauth_authorize). A code with no
+    # stored challenge predates that rule; refuse it rather than accept any verifier.
     stored_challenge = record.get('code_challenge', '')
-    if stored_challenge:
-        if not code_verifier:
-            return _token_error('invalid_grant', 'code_verifier required (PKCE)')
-        import base64
-        digest = hashlib.sha256(code_verifier.encode()).digest()
-        computed = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
-        if not hmac.compare_digest(computed, stored_challenge):
-            return _token_error('invalid_grant', 'PKCE verification failed')
+    if not stored_challenge:
+        return _token_error('invalid_grant', 'Code was issued without PKCE; authorize again')
+    if not code_verifier:
+        return _token_error('invalid_grant', 'code_verifier required (PKCE)')
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    computed = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
+    if not hmac.compare_digest(computed, stored_challenge):
+        return _token_error('invalid_grant', 'PKCE verification failed')
 
     return _issue_token_response(record['user_id'], client_id)
 
