@@ -4209,3 +4209,27 @@ Server-side prerequisites for an App Store submission, per the owner's plan (Cap
 - `db.session.delete(user)` (what Admin › Delete user does) only works in SQLite tests because SQLite doesn't enforce foreign keys by default; on Postgres it fails for any user with a conversation. `services/account_deletion.py` deletes by walking the FK graph instead. Admin › Delete user now uses it too (`by_admin=True`).
 - SQLite ignores `PRAGMA foreign_keys=ON` inside an open transaction: commit first, then turn it on (`tests/test_account_deletion.py`'s `fk_checks` fixture).
 - 2026-11-01, step 2: the Capacitor project is in `mobile/`. `npx cap add ios` works on Linux with Capacitor 8 because it uses Swift Package Manager instead of CocoaPods, but nothing was compiled here. The first real build is the owner's Xcode run.
+
+
+### 2026-11-13 scheduled review: AI-consent gap, duplicated fallback config
+
+Reviewed everything merged 2026-10-29 to 2026-11-02 (mostly the iPhone app groundwork).
+- **Consent gap (fixed).** `/api/learning/session-summary` (`app.py`, the chat page's "End
+  session" button) sends up to 30 messages of transcript to Anthropic Haiku. It was not in
+  `services/ai_consent.AI_ENDPOINTS` or `ai_consent.js`'s `AI_PATH`, so in the app it ran with
+  no consent (Apple 5.1.2(i)). Both lists now include it, and
+  `test_js_screen_covers_every_server_gated_endpoint` fails if the JS list falls behind the server's.
+  The same endpoint returned `str(e)` to the browser; now a fixed message.
+- **Duplicate (fixed).** The Groq fallback `ModelConfig(provider='groq', model='llama-3.3-70b-versatile', ...)`
+  was built by hand in two places in `app.py` and two in `api/v1/conversations.py`, ignoring
+  `GROQ_FALLBACK_MODEL`. All four call `chat_service.groq_fallback_model_config()`.
+- **Hardening (fixed).** `native_app.js`'s `safeLink` let `/\evil.example` through (browsers
+  treat it as `//evil.example`). Links come from our own server today, so not exploitable.
+- **Checked, no change:** account deletion's FK walk (every non-owner reference to `users` is
+  nullable, so no other user's rows are deleted; users can't create shared workflow templates),
+  push registration and APNs sending, the app-mode billing block.
+- **Not fixed, noted:** `/api/learning/session-summary` hardcodes `claude-haiku-4-5-20251001`
+  and trusts model-returned `proficiency_deltas` (capped at 100, no floor);
+  `app_client.plan_context()` hardcodes "Starter ($29/month) for 200 credits" instead of
+  reading `TIER_DEFINITIONS`; `/api/account/delete`'s password check doesn't count towards the
+  login lockout (it is rate-limited to 5/hour and needs a signed-in session).

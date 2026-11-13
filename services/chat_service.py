@@ -82,6 +82,15 @@ GROQ_FALLBACK_MODEL = 'llama-3.3-70b-versatile'
 GROQ_FALLBACK_MAX_TOKENS = 4096
 
 
+def groq_fallback_model_config():
+    """The ModelConfig every chat route reports when a reply came from the Groq fallback."""
+    from services.model_router import ModelConfig
+    return ModelConfig(
+        provider='groq', model=GROQ_FALLBACK_MODEL,
+        display_name='Llama 3.3 70B (Fallback)', supports_tools=False,
+    )
+
+
 def generate_upgrade_pitch(refills_at=None, in_app: bool = False) -> str:
     """Markdown shown when a Free-plan user has used this month's 20 credits.
 
