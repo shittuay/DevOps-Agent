@@ -2263,6 +2263,8 @@ A full read-only review found five issues the owner asked to fix first (CLAUDE_R
   `admin` everything. MCP API keys need `execute`. `?api_key=` is refused. Guard:
   `tests/test_api_key_scopes.py`.
 
+2026-11-13 scheduled review: `/api/learning/session-summary` sends the chat transcript to Anthropic but was missing from `ai_consent.AI_ENDPOINTS`, so the iPhone app could reach it before the user agreed; added (server list and `ai_consent.js`, which a test now keeps in step). It also echoed `str(e)`. The Groq fallback `ModelConfig` was copied four times; use `chat_service.groq_fallback_model_config()`. The app's notification-link check now refuses backslashes.
+
 2026-10-25 and 2026-10-29 scheduled reviews: `_is_safe_redirect` rejects scheme-without-host (`http:/evil.com`), backslashes and control characters; `terraform_apply` refuses a dash-leading `plan_file`; `/api/run-migration` is admin-only. Guards: `tests/test_safe_redirect.py`, `tests/test_review_2026_10_25.py`.
 
 Still open from that review (not fixed): org invitations join on GET and aren't bound to an email; TOTP

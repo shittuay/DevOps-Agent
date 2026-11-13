@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    var AI_PATH = /^\/(api\/chat(\/stream)?|curriculum\/api\/(ai-guide|quiz\/generate))\/?$/;
+    var AI_PATH = /^\/(api\/chat(\/stream)?|api\/learning\/session-summary|curriculum\/api\/(ai-guide|quiz\/generate))\/?$/;
     // Keep in step with AI_PROVIDERS in services/ai_consent.py.
     var PROVIDERS = [
         ['Anthropic', 'checks every message for abuse, and answers on plans that use Claude'],

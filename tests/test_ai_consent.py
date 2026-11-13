@@ -50,7 +50,8 @@ def test_every_ai_endpoint_is_listed():
     assert not is_ai_endpoint('/api/chat/history') and not is_ai_endpoint('/api/ai-consent')
     # Every route that calls a model must be gated. If you add one, add it to AI_ENDPOINTS.
     assert set(AI_ENDPOINTS) == {'/api/chat', '/api/chat/stream',
-                                 '/curriculum/api/ai-guide', '/curriculum/api/quiz/generate'}
+                                 '/curriculum/api/ai-guide', '/curriculum/api/quiz/generate',
+                                 '/api/learning/session-summary'}
 
 
 def test_app_requests_are_refused_until_the_user_allows_it(app, db_session):
@@ -176,3 +177,14 @@ def test_screen_holds_the_request_until_the_user_answers():
     assert r['allowedStatus'] == 200
     assert r['calls'][1:3] == ['/api/ai-consent POST', '/api/chat POST'], r['calls']
     assert r['attr'] == '1' and r['noSecondPrompt']
+
+
+def test_js_screen_covers_every_server_gated_endpoint():
+    """The app's consent screen (ai_consent.js) must open for every path the server refuses,
+    or the user gets a bare 403 with no way to say yes."""
+    import os
+    import re
+    js = open(os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'ai_consent.js')).read()
+    pattern = re.search(r"var AI_PATH = /(.+)/;", js).group(1).replace('\\/', '/')
+    for path in AI_ENDPOINTS:
+        assert re.match(pattern, path), path

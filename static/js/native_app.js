@@ -55,7 +55,9 @@
     }
 
     function safeLink(link) {
-        return typeof link === 'string' && link.charAt(0) === '/' && link.charAt(1) !== '/' ? link : null;
+        // Same-site paths only. Browsers read a backslash as "/", so "/<backslash>evil.com" leaves the site.
+        return typeof link === 'string' && /^\/(?![\/\\])/.test(link) &&
+            !/[\\\u0000-\u001f]/.test(link) ? link : null;
     }
 
     if (Push) {
