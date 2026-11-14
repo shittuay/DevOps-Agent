@@ -50,7 +50,8 @@ def test_every_ai_endpoint_is_listed():
     assert not is_ai_endpoint('/api/chat/history') and not is_ai_endpoint('/api/ai-consent')
     # Every route that calls a model must be gated. If you add one, add it to AI_ENDPOINTS.
     assert set(AI_ENDPOINTS) == {'/api/chat', '/api/chat/stream',
-                                 '/curriculum/api/ai-guide', '/curriculum/api/quiz/generate'}
+                                 '/curriculum/api/ai-guide', '/curriculum/api/quiz/generate',
+                                 '/api/learning/session-summary'}
 
 
 def test_app_requests_are_refused_until_the_user_allows_it(app, db_session):
