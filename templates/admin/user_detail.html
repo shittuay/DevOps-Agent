@@ -96,7 +96,7 @@
             align-items: center;
             gap: 0.5rem;
         }
-        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-primary { background: var(--accent-primary); color: var(--on-accent, #0a0e1a); }
         .btn-warning { background: var(--accent-warning); color: black; }
         .btn-danger { background: var(--accent-danger); color: white; }
         .btn-secondary {
@@ -381,5 +381,6 @@
         }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

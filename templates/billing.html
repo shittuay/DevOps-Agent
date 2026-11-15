@@ -99,7 +99,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             font-weight: 800;
             font-size: 20px;
             font-family: 'Syne', sans-serif;
@@ -246,7 +246,7 @@
         .tier-badge {
             padding: 10px 20px;
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border-radius: 24px;
             font-weight: 700;
             font-size: 14px;
@@ -350,7 +350,7 @@
             top: 20px;
             right: -35px;
             background: var(--accent-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             padding: 4px 40px;
             font-size: 13px;
             font-weight: 700;
@@ -502,7 +502,7 @@
 
         .btn-primary {
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .btn-primary::before {
@@ -606,6 +606,9 @@
             color: var(--accent-electric);
             margin-bottom: 8px;
         }
+
+        [data-theme="light"] .pack-amount { color: #0369a1; }
+        [data-theme="light"] .popular-badge { background: #0369a1; color: #ffffff; }
 
         .pack-label {
             font-size: 14px;
@@ -875,7 +878,7 @@
             width: 100%;
             padding: 16px 28px;
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             border-radius: 12px;
             font-size: 16px;
@@ -1071,7 +1074,7 @@
 
         .currency-toggle button.active {
             background: var(--gradient-primary);
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .currency-toggle button:hover:not(.active) {
@@ -1096,7 +1099,7 @@
     </style>
 </head>
 <body class="animated-bg">
-    <div class="page-container page-content">
+    <div class="page-container page-content" role="main" id="main">
         <!-- Header -->
         <div class="header">
             <div class="logo-section">
@@ -1380,5 +1383,6 @@
         }
     </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

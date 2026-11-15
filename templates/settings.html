@@ -67,7 +67,8 @@
         .security-box p { margin-top: 0; }
         .backup-codes-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 12px 0; }
         .backup-codes-grid div { font-family: 'IBM Plex Mono', monospace; text-align: center; padding: 8px; border: 1px solid var(--border-subtle); border-radius: 8px; letter-spacing: 1px; }
-        .btn-danger { padding: 12px 20px; border-radius: 10px; border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.12); color: #ef4444; font-weight: 600; cursor: pointer; }
+        .btn-danger { padding: 12px 20px; border-radius: 10px; border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.12); color: #f87171; font-weight: 600; cursor: pointer; }
+        [data-theme="light"] .btn-danger { color: #b91c1c; }
         @media (max-width: 600px) { .profile-row { grid-template-columns: 1fr; } }
         .settings-section.tab-visible { display: block; }
 
@@ -397,7 +398,7 @@
 
         .btn-primary {
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .btn-primary::before {
@@ -1350,12 +1351,12 @@
                     <h3 style="font-size: 0.9rem; color: var(--text-primary); margin: 0 0 14px;">Generate New Key</h3>
                     <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
                         <div style="flex: 1; min-width: 180px;">
-                            <label style="font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 6px;">Key Name</label>
+                            <label style="font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 6px;" for="newKeyName">Key Name</label>
                             <input id="newKeyName" type="text" placeholder="e.g. CI pipeline, Monitoring script"
                                 style="width: 100%; padding: 9px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.875rem; box-sizing: border-box;">
                         </div>
                         <div style="min-width: 130px;">
-                            <label style="font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 6px;">Expires (days)</label>
+                            <label style="font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 6px;" for="newKeyExpiry">Expires (days)</label>
                             <input id="newKeyExpiry" type="number" min="0" max="365" placeholder="0 = never"
                                 style="width: 100%; padding: 9px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.875rem; box-sizing: border-box;">
                         </div>
@@ -2130,7 +2131,7 @@
                                 <div style="flex:1;">
                                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
                                         <span style="font-size:0.9rem;font-weight:600;color:var(--text-primary);">${path.title}</span>
-                                        ${isRecommended ? '<span style="font-size:0.7rem;padding:2px 6px;background:var(--accent-primary);color:white;border-radius:4px;">Recommended</span>' : ''}
+                                        ${isRecommended ? '<span style="font-size:0.7rem;padding:2px 6px;background:var(--accent-primary);color: var(--on-accent, #0a0e1a);border-radius:4px;">Recommended</span>' : ''}
                                         <span style="font-size:0.7rem;padding:2px 6px;background:${levelColor}22;color:${levelColor};border-radius:4px;text-transform:capitalize;">${path.level}</span>
                                     </div>
                                     <p style="font-size:0.8rem;color:var(--text-secondary);margin:0;">${path.description}</p>

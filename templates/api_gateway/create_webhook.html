@@ -11,12 +11,12 @@
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
-                    <label>Webhook Name:</label>
-                    <input type="text" name="name" class="form-control" required placeholder="My Webhook">
+                    <label for="field-name">Webhook Name:</label>
+                    <input id="field-name" type="text" name="name" class="form-control" required placeholder="My Webhook">
                 </div>
                 <div class="form-group">
-                    <label>Endpoint URL:</label>
-                    <input type="url" name="url" class="form-control" required placeholder="https://example.com/webhook">
+                    <label for="field-url">Endpoint URL:</label>
+                    <input id="field-url" type="url" name="url" class="form-control" required placeholder="https://example.com/webhook">
                 </div>
                 <div class="form-group">
                     <label>Events:</label>

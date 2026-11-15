@@ -141,7 +141,15 @@
                 resolve(answer);
             }
             function onKey(e) {
-                if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+                if (e.key === 'Escape') { e.preventDefault(); finish(false); return; }
+                if (e.key === 'Tab') {
+                    // Keep Tab inside the screen while it is open.
+                    var items = Array.prototype.slice.call(sheet.querySelectorAll('a[href], button:not([disabled])'));
+                    if (!items.length) return;
+                    var i = items.indexOf(document.activeElement);
+                    e.preventDefault();
+                    items[(i + (e.shiftKey ? items.length - 1 : 1) + items.length) % items.length].focus();
+                }
             }
             document.addEventListener('keydown', onKey, true);
 

@@ -22,8 +22,8 @@
       --cyan:      #00CFFF;
       --green:     #00FF9D;
       --text:      #E2EAF8;
-      --text2:     #6B7A99;
-      --text3:     #3D4F72;
+      --text2:     #8B97B3;
+      --text3:     #76849F;
       --mono:      'DM Mono', monospace;
       --display:   'Bebas Neue', sans-serif;
       --body:      'Epilogue', sans-serif;
@@ -104,7 +104,7 @@
       font-family: var(--mono);
       font-weight: 700;
       font-size: 22px;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       margin-bottom: 20px;
       box-shadow: 0 8px 32px rgba(255,77,28,.35);
     }
@@ -170,7 +170,7 @@
       background: linear-gradient(135deg, var(--orange), var(--orange2));
       border: none;
       border-radius: 10px;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       font-family: var(--body);
       font-size: 16px;
       font-weight: 700;
@@ -293,7 +293,7 @@
   </style>
 </head>
 <body>
-  <div class="signup-container">
+  <div class="signup-container" role="main" id="main">
     <div class="logo">
       <div class="logo-icon">&gt;_</div>
       <h1>CREATE ACCOUNT</h1>
@@ -382,5 +382,6 @@
       btn.innerHTML = '<span class="spinner"></span> Creating account...';
     });
   </script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>
