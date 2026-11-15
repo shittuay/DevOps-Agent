@@ -699,6 +699,7 @@ class SafetyValidator:
             # point a topic at a new external endpoint) was already medium-risk; this sibling
             # publish path was missed until the 2026-09-02 scheduled audit.
             'publish_pubsub_message',
+            'query_bigquery',  # arbitrary SQL, incl. DML/DDL
             # Same shape again, missed by the same sweeps that caught the SNS/Pub-Sub
             # siblings above: send_sqs_message accepts a fully caller-controlled
             # queue_url + message_body with no confirmation. SQS queues commonly
