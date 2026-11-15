@@ -322,6 +322,25 @@ class EmailService:
         """)
         return self.send_email(user.email, "Welcome to DevOps Agent", html)
 
+    def send_org_invitation_email(self, to_email, org_name, inviter_name, role, link, days_valid):
+        """Invite someone to an organization. Names are user-supplied, so they are escaped."""
+        from html import escape
+        org = escape(org_name or 'an organization')
+        inviter = escape(inviter_name or 'A teammate')
+        html = self._wrap_html(f"""
+            <h2 style="color: #333; margin-bottom: 12px;">You're invited to {org}</h2>
+            <p>{inviter} invited you to join <strong>{org}</strong> on DevOps Agent as <strong>{escape(role)}</strong>.</p>
+            <p>Sign in (or create an account) with <strong>{escape(to_email)}</strong>, then open this link to accept.</p>
+            <p style="font-size: 13px; color: #666;">This link works once and expires in {int(days_valid)} days.</p>
+            <div style="text-align: center; margin: 24px 0;">
+                <a href="{escape(link, quote=True)}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    View invitation
+                </a>
+            </div>
+            <p style="font-size: 13px; color: #666;">If you weren't expecting this, you can ignore this email.</p>
+        """)
+        return self.send_email(to_email, f"Invitation to join {org_name or 'an organization'} on DevOps Agent", html)
+
     def send_credit_low_warning(self, user, remaining_credits):
         """Warn user when credits are running low."""
         html = self._wrap_html(f"""

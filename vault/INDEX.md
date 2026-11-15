@@ -20,6 +20,7 @@ Read this index first, then follow only the links relevant to the current task.
 
 ## Debugging / Postmortems
 - [[coverage-7-15-1-ci-outage]] — loose `coverage>=` pin took CI down Jul 13–15, 2026
+- [[2026-11-15-org-invitations-never-worked]] — every org invite 500'd (NOT NULL user_id); rebuilt as email-bound, POST-accepted invites
 
 ## Architecture
 _(rationale notes go here — e.g. why guardrails fail open, why SSRF guard allows RFC1918)_
