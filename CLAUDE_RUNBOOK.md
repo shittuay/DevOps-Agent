@@ -4234,3 +4234,14 @@ Reviewed everything merged 2026-10-29 to 2026-11-02 (mostly the iPhone app groun
   `app_client.plan_context()` hardcodes "Starter ($29/month) for 200 credits" instead of
   reading `TIER_DEFINITIONS`; `/api/account/delete`'s password check doesn't count towards the
   login lockout (it is rate-limited to 5/hour and needs a signed-in session).
+
+## 2026-11-15: Every deploy failed after a Dependabot bump (Pillow 13 / dnspython 2.9)
+
+Dependabot PR #321 bumped `Pillow` 12.3.0 -> 13.0.0 and `dnspython` 2.8.0 -> 2.9.0, the same
+pair reverted on 2026-10-31. Both need Python >=3.11; the server's venv is older (3.10 as far as
+we can tell). CI runs on 3.11, so every check passed; the deploy job then failed at
+`pip install -r requirements.txt` with `No matching distribution found for Pillow==13.0.0` on all
+three attempts, and the service kept running the previous code. Merges #318-#325 (including the
+accessibility fixes) were not live until the pins went back. Fix: pins reverted and a
+`server-python-check` CI job that resolves the requirements on Python 3.10 and blocks
+`status-check`. dnspython 2.9.0's advisory (CVE-2026-114605) is accepted for now; see CLAUDE.md.
