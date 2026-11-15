@@ -56,6 +56,7 @@ global.document = {
   await new Promise(r => setTimeout(r, 10));
   if (listeners.pushNotificationActionPerformed) {
     listeners.pushNotificationActionPerformed({notification: {data: {link: '//evil.example/x'}}});
+    listeners.pushNotificationActionPerformed({notification: {data: {link: '/' + String.fromCharCode(92) + 'evil.example/x'}}});
     const afterEvil = window.location.href;
     listeners.pushNotificationActionPerformed({notification: {data: {link: '/approvals/mine'}}});
     calls.evilHref = afterEvil;
@@ -96,7 +97,7 @@ def test_push_token_sent_once_and_taps_only_open_our_own_pages():
     res = _run()
     posts = [f for f in res['fetched'] if f[0] == '/api/push/devices']
     assert posts == [['/api/push/devices', 'POST']], 'same token twice is sent once'
-    assert res['evilHref'] == 'https://devopsagent.io/chat', 'a //host link is ignored'
+    assert res['evilHref'] == 'https://devopsagent.io/chat', '//host and /\\host links are ignored'
     assert res['href'] == '/approvals/mine'
 
 
