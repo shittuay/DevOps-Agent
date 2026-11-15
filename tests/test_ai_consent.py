@@ -177,3 +177,14 @@ def test_screen_holds_the_request_until_the_user_answers():
     assert r['allowedStatus'] == 200
     assert r['calls'][1:3] == ['/api/ai-consent POST', '/api/chat POST'], r['calls']
     assert r['attr'] == '1' and r['noSecondPrompt']
+
+
+def test_js_screen_covers_every_server_gated_endpoint():
+    """The app's consent screen (ai_consent.js) must open for every path the server refuses,
+    or the user gets a bare 403 with no way to say yes."""
+    import os
+    import re
+    js = open(os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'ai_consent.js')).read()
+    pattern = re.search(r"var AI_PATH = /(.+)/;", js).group(1).replace('\\/', '/')
+    for path in AI_ENDPOINTS:
+        assert re.match(pattern, path), path
