@@ -2277,8 +2277,15 @@ covers it. Guard: `tests/test_review_2026_11_14.py`. Smells noted, not changed: 
 calls `client.chat.completions.create` directly instead of `kimi_create_with_fallback`; and
 `POST /api/push/devices` moves a known APNs token to any signed-in account.
 
-Still open from that review (not fixed): org invitations join on GET and aren't bound to an email; TOTP
-setup marks the email verified; login messages reveal which
+2026-11-15 scheduled review: **organization invitations work and are safe.** Inviting always 500'd
+(`OrganizationMember.user_id` is NOT NULL), so no team could add a member. Invitations now live in
+`OrganizationInvitation` (token stored as SHA-256, 7 days, single use, re-invite replaces), are emailed,
+can't grant `owner`, and are accepted only by **POST** from a signed-in, email-verified account whose
+address matches (GET shows a confirm page). The Members page's Remove/Change role are real CSRF forms
+posting the user id. TOTP setup no longer sets `email_verified` (a 2FA user still gets into the app via
+`enforce_email_verification`). Guard: `tests/test_org_invitations.py`.
+
+Still open from that review (not fixed): login messages reveal which
 accounts exist; sandbox mode is ignored on `api/v1` and `/v1/agent`;
 `query_bigquery` unclassified; `*_api_read` can read secret
 values; the map's `esc()`.

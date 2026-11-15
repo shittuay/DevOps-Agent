@@ -4245,3 +4245,30 @@ three attempts, and the service kept running the previous code. Merges #318-#325
 accessibility fixes) were not live until the pins went back. Fix: pins reverted and a
 `server-python-check` CI job that resolves the requirements on Python 3.10 and blocks
 `status-check`. dnspython 2.9.0's advisory (CVE-2026-114605) is accepted for now; see CLAUDE.md.
+
+### 2026-11-15 scheduled review: organization invitations never worked
+
+- **Invite always 500'd (fixed).** `MultiTenancyService.create_invitation()` inserted an
+  `OrganizationMember` with `user_id=None`, but that column is `NOT NULL`, so every "Invite
+  Member" raised `IntegrityError`. It also never stored the email or sent anything, while the
+  page said "Invitation sent". Nobody could ever add a member to an organization.
+- **Security gaps in the same code (fixed):** accepting joined on a plain GET (forced-join
+  CSRF; SameSite=Lax still sends cookies on top-level GETs), any signed-in account could use
+  any token, tokens never expired, and `role` was not checked, so an org admin could invite
+  someone in as `owner` (the role-change route already blocked that).
+- **Now:** `OrganizationInvitation` table (created by `db.create_all()`; only a SHA-256 of the
+  token is stored). The link is emailed (`EmailService.send_org_invitation_email`, names
+  escaped), works once, lasts 7 days, and a re-invite replaces it. GET
+  `/organizations/invitation/<token>` shows a confirm page; POST accepts, only for a signed-in
+  account whose email matches and is verified. Invites can grant admin/member/billing/viewer,
+  never owner. Pending invitations are listed on Members with Cancel. If the email fails the
+  page shows the link so the inviter can share it.
+- **Members page (fixed):** Remove posted the membership id where the route expects a user id
+  (it removed the wrong person or nobody) with no CSRF token, Change Role called an undefined
+  `changeRole()`, and flash messages were never rendered. Both are now real forms with tokens.
+- **TOTP setup no longer marks the email verified** (`routes/auth.py`). An authenticator app
+  proves nothing about the mailbox, and invite acceptance, SSO linking and the onboarding
+  emails all rely on `email_verified`. `enforce_email_verification()` already lets 2FA users
+  into the app, so nobody is locked out. Email-code MFA setup still verifies (it does prove it).
+- Guard: `tests/test_org_invitations.py`. The old `OrganizationMember.invitation_token` column
+  is left in place, unused.

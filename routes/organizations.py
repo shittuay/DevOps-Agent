@@ -162,12 +162,30 @@ def invite_member(org_id):
     email = request.form.get('email')
     role = request.form.get('role', 'member')
 
-    invitation = service.create_invitation(org_id, email, role, current_user.id)
-    if invitation:
-        flash(f'Invitation sent to {email}!', 'success')
+    result = service.create_invitation(org_id, email, role, current_user.id)
+    if not result.get('ok'):
+        flash(result.get('error') or 'Could not create the invitation.', 'error')
+    elif result.get('sent'):
+        flash(f'Invitation emailed to {email.strip().lower()}. The link expires in '
+              f'{service.INVITATION_DAYS} days.', 'success')
     else:
-        flash('Failed to send invitation.', 'error')
+        # Delivery failed; give the inviter the link so the invite isn't lost.
+        flash('The invitation was created but the email could not be sent. Share this link '
+              f'with them directly: {result["link"]}', 'warning')
 
+    return redirect(url_for('organizations.list_members', org_id=org_id))
+
+
+@organizations_bp.route('/<int:org_id>/invitations/<int:invitation_id>/revoke', methods=['POST'])
+@login_required
+@org_admin_required
+def revoke_invitation(org_id, invitation_id):
+    """Cancel a pending invitation so its link stops working."""
+    from services.multi_tenancy import MultiTenancyService
+    if MultiTenancyService().revoke_invitation(org_id, invitation_id):
+        flash('Invitation cancelled.', 'success')
+    else:
+        flash('That invitation is no longer pending.', 'error')
     return redirect(url_for('organizations.list_members', org_id=org_id))
 
 
@@ -463,17 +481,33 @@ def api_switch_organization(org_id):
     })
 
 
-@organizations_bp.route('/invitation/<token>')
+@organizations_bp.route('/invitation/<token>', methods=['GET', 'POST'])
 @login_required
 def accept_invitation(token):
-    """Accept an organization invitation"""
+    """GET shows the invitation; POST accepts it. Joining never happens on a GET, so a
+    link or image on another site can't add the visitor to an organization."""
     from services.multi_tenancy import MultiTenancyService
     service = MultiTenancyService()
 
-    membership = service.accept_invitation(token, current_user.id)
-    if membership:
-        flash(f'You have joined {membership.organization.name}!', 'success')
-        return redirect(url_for('organizations.view_organization', org_id=membership.organization_id))
-    else:
-        flash('Invalid or expired invitation.', 'error')
-        return redirect(url_for('organizations.list_organizations'))
+    invitation = service.get_invitation_by_token(token)
+    problem = None
+    if not invitation:
+        problem = 'This invitation is invalid, has expired, or was already used.'
+    elif not service.invitation_matches_user(invitation, current_user):
+        problem = ('This invitation was sent to a different email address. Sign in with '
+                   'the invited account to accept it.')
+    elif not current_user.email_verified:
+        problem = 'Verify your email address first, then open the invitation link again.'
+
+    if request.method == 'POST' and not problem:
+        membership = service.accept_invitation(token, current_user)
+        if membership:
+            flash(f'You have joined {membership.organization.name}!', 'success')
+            return redirect(url_for('organizations.view_organization',
+                                    org_id=membership.organization_id))
+        problem = 'This invitation is invalid, has expired, or was already used.'
+
+    return render_template('organizations/invitation.html',
+                           invitation=None if problem else invitation,
+                           problem=problem,
+                           token=token), (400 if problem and request.method == 'POST' else 200)

@@ -249,66 +249,158 @@ class MultiTenancyService:
         return False
 
     # Invitation Management
+    #
+    # An invitation is bound to one email address and accepted only by a signed-in,
+    # email-verified account with that address. Invites can't grant 'owner' (ownership
+    # is transferred through the role-change route, which requires an existing owner).
+
+    INVITABLE_ROLES = ('admin', 'member', 'billing', 'viewer')
+    INVITATION_DAYS = 7
+    _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        import hashlib
+        return hashlib.sha256((token or '').encode()).hexdigest()
 
     def create_invitation(self, org_id: int, email: str, role: str,
-                          invited_by: int) -> Any:
-        """Create an invitation to join an organization."""
-        OrganizationMember = self._get_member_model()
+                          invited_by: int) -> Dict[str, Any]:
+        """Create (or replace) a pending invitation and email the link.
+
+        Returns {'ok': bool, 'error'?: str, 'sent'?: bool, 'link'?: str}. The link is
+        returned so the inviter can share it by hand if email delivery fails.
+        """
+        from models import OrganizationInvitation, User
         db = self._get_db()
 
-        token = secrets.token_urlsafe(32)
+        email = (email or '').strip().lower()
+        if not self._EMAIL_RE.match(email) or len(email) > 255:
+            return {'ok': False, 'error': 'Enter a valid email address.'}
+        if role not in self.INVITABLE_ROLES:
+            return {'ok': False, 'error': 'Invalid role.'}
 
-        invitation = OrganizationMember(
+        from sqlalchemy import func
+        existing_user = User.query.filter(func.lower(User.email) == email).first()
+        if existing_user and self.get_membership(org_id, existing_user.id):
+            return {'ok': False, 'error': f'{email} is already a member.'}
+
+        now = utcnow()
+        # One live invitation per address: a re-invite replaces the old link.
+        OrganizationInvitation.query.filter_by(
+            organization_id=org_id, email=email, accepted_at=None, revoked_at=None
+        ).update({'revoked_at': now})
+
+        token = secrets.token_urlsafe(32)
+        invitation = OrganizationInvitation(
             organization_id=org_id,
-            user_id=None,  # Will be set when invitation is accepted
+            email=email,
             role=role,
+            token_hash=self._hash_token(token),
             invited_by=invited_by,
-            invited_at=utcnow(),
-            invitation_token=token,
-            is_active=False  # Not active until accepted
+            created_at=now,
+            expires_at=now + timedelta(days=self.INVITATION_DAYS),
         )
         db.session.add(invitation)
         db.session.commit()
 
-        logger.info(f"Created invitation to org {org_id} for {email}")
-        return {'token': token, 'email': email, 'org_id': org_id, 'role': role}
+        from services.email_service import EmailService
+        mailer = EmailService()
+        link = f"{mailer.base_url}/organizations/invitation/{token}"
+        org = self.get_organization(org_id)
+        inviter = User.query.get(invited_by) if invited_by else None
+        try:
+            sent = mailer.send_org_invitation_email(
+                email, org.name if org else None,
+                (inviter.full_name or inviter.username) if inviter else None,
+                role, link, self.INVITATION_DAYS,
+            )
+        except Exception as e:  # noqa: BLE001 - delivery failure is reported, not raised
+            logger.error(f"Invitation email to {email} failed: {e}")
+            sent = False
 
-    def accept_invitation(self, token: str, user_id: int) -> Optional[Any]:
-        """Accept an invitation."""
+        logger.info(f"Created invitation to org {org_id} for {email} (sent={sent})")
+        return {'ok': True, 'sent': bool(sent), 'link': link}
+
+    def get_invitation_by_token(self, token: str) -> Optional[Any]:
+        """The live (not accepted, revoked or expired) invitation for this token, if any."""
+        from models import OrganizationInvitation
+        invitation = OrganizationInvitation.query.filter_by(
+            token_hash=self._hash_token(token)
+        ).first()
+        if (not invitation or invitation.accepted_at or invitation.revoked_at
+                or invitation.expires_at <= utcnow()):
+            return None
+        return invitation
+
+    @staticmethod
+    def invitation_matches_user(invitation: Any, user: Any) -> bool:
+        return bool(user and user.email and invitation
+                    and user.email.strip().lower() == invitation.email)
+
+    def accept_invitation(self, token: str, user: Any) -> Optional[Any]:
+        """Accept an invitation as `user`. Returns the membership, or None if refused."""
         OrganizationMember = self._get_member_model()
         db = self._get_db()
 
-        invitation = OrganizationMember.query.filter_by(
-            invitation_token=token,
-            is_active=False
-        ).first()
-
-        if not invitation:
+        invitation = self.get_invitation_by_token(token)
+        if not invitation or not self.invitation_matches_user(invitation, user):
+            return None
+        if not getattr(user, 'email_verified', False):
             return None
 
-        # Check if already a member
-        existing = self.get_membership(invitation.organization_id, user_id)
-        if existing:
-            db.session.delete(invitation)
-            db.session.commit()
-            return existing
+        now = utcnow()
+        # Claim the invitation in one conditional UPDATE so it can be used only once.
+        from models import OrganizationInvitation
+        claimed = OrganizationInvitation.query.filter_by(
+            id=invitation.id, accepted_at=None, revoked_at=None
+        ).update({'accepted_at': now, 'accepted_by': user.id})
+        if not claimed:
+            db.session.rollback()
+            return None
 
-        invitation.user_id = user_id
-        invitation.accepted_at = utcnow()
-        invitation.is_active = True
-        invitation.invitation_token = None
+        membership = OrganizationMember.query.filter_by(
+            organization_id=invitation.organization_id, user_id=user.id
+        ).first()
+        if membership and membership.is_active:
+            db.session.commit()
+            return membership
+        if membership:  # previously removed: rejoin with the invited role
+            membership.is_active = True
+            membership.role = invitation.role
+        else:
+            membership = OrganizationMember(
+                organization_id=invitation.organization_id,
+                user_id=user.id,
+                role=invitation.role,
+                is_active=True,
+            )
+            db.session.add(membership)
+        membership.invited_by = invitation.invited_by
+        membership.invited_at = invitation.created_at
+        membership.accepted_at = now
         db.session.commit()
 
-        logger.info(f"User {user_id} accepted invitation to org {invitation.organization_id}")
-        return invitation
+        logger.info(f"User {user.id} accepted invitation to org {invitation.organization_id}")
+        return membership
+
+    def revoke_invitation(self, org_id: int, invitation_id: int) -> bool:
+        from models import OrganizationInvitation
+        db = self._get_db()
+        updated = OrganizationInvitation.query.filter_by(
+            id=invitation_id, organization_id=org_id, accepted_at=None, revoked_at=None
+        ).update({'revoked_at': utcnow()})
+        db.session.commit()
+        return bool(updated)
 
     def get_pending_invitations(self, org_id: int) -> list:
-        """Return all pending (unaccepted) invitations for an organization."""
-        OrganizationMember = self._get_member_model()
-        return OrganizationMember.query.filter_by(
-            organization_id=org_id,
-            is_active=False
-        ).filter(OrganizationMember.invitation_token.isnot(None)).all()
+        """Live invitations for an organization, newest first."""
+        from models import OrganizationInvitation
+        return OrganizationInvitation.query.filter(
+            OrganizationInvitation.organization_id == org_id,
+            OrganizationInvitation.accepted_at.is_(None),
+            OrganizationInvitation.revoked_at.is_(None),
+            OrganizationInvitation.expires_at > utcnow(),
+        ).order_by(OrganizationInvitation.created_at.desc()).all()
 
     # Team Management
 

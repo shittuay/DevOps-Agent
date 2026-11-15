@@ -853,7 +853,9 @@ def api_2fa_verify_setup():
         current_user.mfa_method = 'totp'
         current_user.two_factor_verified_at = utcnow()
         current_user.two_factor_attempts = 0
-        current_user.email_verified = True  # TOTP setup proves account ownership
+        # Not email_verified: an authenticator app proves nothing about the mailbox.
+        # enforce_email_verification() already lets 2FA users into the app; invitations,
+        # SSO linking and marketing email still need a proven address.
 
         backup_codes = two_factor_service.generate_backup_codes()
         current_user.backup_codes = [
