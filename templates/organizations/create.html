@@ -40,7 +40,7 @@
                     <label class="plan-option">
                         <input type="radio" name="plan" value="free" checked>
                         <div class="plan-content">
-                            <h4>Free</h4>
+                            <h2>Free</h2>
                             <p>Up to 5 members</p>
                             <span class="plan-price">$0/month</span>
                         </div>
@@ -48,7 +48,7 @@
                     <label class="plan-option">
                         <input type="radio" name="plan" value="team">
                         <div class="plan-content">
-                            <h4>Team</h4>
+                            <h2>Team</h2>
                             <p>Up to 20 members</p>
                             <span class="plan-price">$29/month</span>
                         </div>
@@ -56,7 +56,7 @@
                     <label class="plan-option">
                         <input type="radio" name="plan" value="enterprise">
                         <div class="plan-content">
-                            <h4>Enterprise</h4>
+                            <h2>Enterprise</h2>
                             <p>Unlimited members</p>
                             <span class="plan-price">Contact us</span>
                         </div>
@@ -133,7 +133,7 @@
 .form-group input:focus,
 .form-group textarea:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #4c51bf;
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
@@ -189,11 +189,11 @@
 }
 
 .plan-option input:checked + .plan-content {
-    border-color: #667eea;
+    border-color: #4c51bf;
     background: rgba(102, 126, 234, 0.05);
 }
 
-.plan-content h4 {
+.plan-content h2, .plan-content h4 {
     margin: 0 0 5px;
     color: var(--text-primary);
 }
@@ -206,7 +206,7 @@
 
 .plan-price {
     font-weight: 600;
-    color: #667eea;
+    color: #4c51bf;
 }
 
 .form-actions {
@@ -226,7 +226,7 @@
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #4c51bf 0%, #764ba2 100%);
     color: white;
 }
 
@@ -235,6 +235,8 @@
     color: var(--text-primary);
     border: 1px solid var(--border-color);
 }
+.plan-price { color: #818cf8; }
+[data-theme="light"] .plan-price { color: #4c51bf; }
 </style>
 
 <script>

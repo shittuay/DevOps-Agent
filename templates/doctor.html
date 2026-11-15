@@ -73,7 +73,7 @@
             background: var(--gradient-primary);
             border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
-            color: white; font-weight: 800; font-size: 20px;
+            color: var(--on-accent, #0a0e1a); font-weight: 800; font-size: 20px;
             font-family: 'Syne', sans-serif;
             position: relative; overflow: hidden;
         }
@@ -321,7 +321,7 @@
 
         .btn-refresh {
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             padding: 10px 24px;
             font-size: 14px;
         }
@@ -437,5 +437,6 @@
             </div>
         </div>
     </div>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

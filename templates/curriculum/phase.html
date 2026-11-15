@@ -22,7 +22,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
     position: sticky; top: 0; z-index: 100;
 }
 .logo-section { display: flex; align-items: center; gap: 12px; }
-.logo-icon { width: 38px; height: 38px; background: var(--gradient-primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 15px; font-family: 'IBM Plex Mono', monospace; }
+.logo-icon { width: 38px; height: 38px; background: var(--gradient-primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--on-accent, #0a0e1a); font-weight: 700; font-size: 15px; font-family: 'IBM Plex Mono', monospace; }
 .logo-text { font-size: 18px; font-weight: 700; font-family: 'Syne', sans-serif; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .back-btn { padding: 8px 18px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.2s; }
 .back-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
@@ -71,9 +71,9 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 .resources { display: flex; flex-wrap: wrap; gap: 8px; }
 .resource-link { font-size: 12px; color: var(--accent-electric); text-decoration: none; padding: 4px 10px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.15); border-radius: 6px; font-family: 'IBM Plex Mono', monospace; transition: all 0.2s; }
 .resource-link:hover { background: rgba(0,212,255,0.15); }
-.ask-btn { padding: 10px 20px; background: var(--gradient-primary); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
+.ask-btn { padding: 10px 20px; background: var(--gradient-primary); color: var(--on-accent, #0a0e1a); border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
 .ask-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,107,53,0.3); }
-.quiz-btn { padding: 10px 20px; background: rgba(191,95,255,0.12); color: #bf5fff; border: 1px solid rgba(191,95,255,0.3); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
+.quiz-btn { padding: 10px 20px; background: rgba(191,95,255,0.12); color: #d19bff; border: 1px solid rgba(191,95,255,0.3); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
 .quiz-btn:hover { background: rgba(191,95,255,0.2); transform: translateY(-1px); }
 
 /* ── Quiz Modal ── */
@@ -264,6 +264,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 }
 
 .ai-input-label {
+    display: block;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 11px;
     text-transform: uppercase;
@@ -328,7 +329,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
 .ai-submit-btn {
     padding: 14px;
     background: var(--gradient-primary);
-    color: white;
+    color: var(--on-accent, #0a0e1a);
     border: none;
     border-radius: 10px;
     font-size: 15px;
@@ -468,10 +469,14 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
     .ai-coach-header { padding: 20px; }
     .ai-input-pane, .ai-output-pane { padding: 20px; }
 }
+/* Light theme: the phase accent colors are neon, too faint for text on white. */
+[data-theme="light"] .quiz-btn { color: #7e22ce; }
+[data-theme="light"] .phase-title { color: var(--text-primary) !important; }
+[data-theme="light"] .resource-link { color: #0369a1; }
 </style>
 </head>
 <body data-signed-in="{{ '1' if current_user.is_authenticated else '0' }}" data-ai-consent="{{ '1' if current_user.is_authenticated and current_user.ai_consent_at else '0' }}">
-<div class="header">
+<div class="header" role="banner">
     <div class="logo-section">
         <div class="logo-icon">>_</div>
         <span class="logo-text">DevOps Agent</span>
@@ -479,6 +484,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
     <a href="/curriculum" class="back-btn">&#8592; All Phases</a>
 </div>
 
+<main id="main">
 <!-- Phase hero -->
 <div class="phase-hero">
     <div class="phase-hero-inner">
@@ -586,7 +592,7 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg-primary); color: 
             <!-- Input pane -->
             <div class="ai-input-pane">
                 <div>
-                    <div class="ai-input-label">Select Module</div>
+                    <label class="ai-input-label" for="ai-module-select">Select Module</label>
                     <select class="ai-module-select" id="ai-module-select"
                             onchange="updateActiveModule()">
                         {% for module in phase.modules %}
@@ -1060,5 +1066,7 @@ function renderMarkdown(text) {
 </script>
 <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 {% if ios_app %}<script src="{{ url_for('static', filename='js/ai_consent.js') }}" defer></script>{% endif %}
+</main>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

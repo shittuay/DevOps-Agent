@@ -2264,10 +2264,20 @@ A full read-only review found five issues the owner asked to fix first (CLAUDE_R
   `tests/test_api_key_scopes.py`.
 
 2026-10-25 and 2026-10-29 scheduled reviews: `_is_safe_redirect` rejects scheme-without-host (`http:/evil.com`), backslashes and control characters; `terraform_apply` refuses a dash-leading `plan_file`; `/api/run-migration` is admin-only. Guards: `tests/test_safe_redirect.py`, `tests/test_review_2026_10_25.py`.
+2026-11-12 daily review: MCP OAuth requires PKCE S256 for every client, the built-in one included (its secret is published); `/token` refuses a code stored without a challenge and a `redirect_uri` that differs from the authorize request. Guard: `tests/test_mcp_oauth_pkce_required.py`.
+
+2026-11-14 scheduled review: `query_bigquery` (arbitrary SQL, including DELETE/DROP) is now
+medium risk with a `modify` capability, so it asks for confirmation and MCP no longer advertises it
+`readOnlyHint` (the `query_` prefix did). `/api/learning/session-summary` (sends the chat transcript
+to Anthropic) is in `AI_ENDPOINTS` and `ai_consent.js`'s `AI_PATH`, so the iPhone app's consent gate
+covers it. Guard: `tests/test_review_2026_11_14.py`. Smells noted, not changed: that route hardcodes
+`claude-haiku-4-5-20251001` and builds its own Anthropic client; `core.py`'s Kimi rate-limit retry
+calls `client.chat.completions.create` directly instead of `kimi_create_with_fallback`; and
+`POST /api/push/devices` moves a known APNs token to any signed-in account.
 
 Still open from that review (not fixed): org invitations join on GET and aren't bound to an email; TOTP
 setup marks the email verified; login messages reveal which
-accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
+accounts exist; sandbox mode is ignored on `api/v1` and `/v1/agent`;
 `query_bigquery` unclassified; `*_api_read` can read secret
 values; the map's `esc()`.
 
@@ -2279,6 +2289,9 @@ transcript that includes cloud tool results, so a crafted resource tag could pla
 non-numeric deltas (one used to 500 the whole summary). It also sends the transcript to
 Anthropic, so it is now in `AI_ENDPOINTS` and the app's consent screen. Guard:
 `tests/test_learning_summary_hardening.py`.
+accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
+`*_api_read` can read secret
+values; stored XSS in Settings > Learning and the map's `esc()`.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
@@ -2697,6 +2710,27 @@ floating switch only when the page has neither a `.theme-toggle` nor a `[data-th
 leftover switch (`.theme-toggle-floating`, on pages with their own header such as Billing, Changes,
 Admin, Learn and the sign-in pages) is small and sits in the bottom-left corner. It used to float at
 top-right, over page content. Guard: `tests/test_theme_toggle_placement.py`.
+
+### Accessibility (WCAG 2.1 AA audit, 2026-11-10, owner request)
+Every page (31 routes, dark and light theme, and the iPhone app) was scanned with axe-core and
+walked with the keyboard; all passed afterwards. Rules that keep it that way:
+- **Colors.** `--text-tertiary`/`--text-muted` and the light theme's `--accent-primary` (`#b13c0b`) are
+  set for 4.5:1. Text on an orange background uses `var(--on-accent)` (dark on the bright orange,
+  white on the light theme's deeper one): white on `#ff6b35` is 2.8:1. Neon accents (cyan, purple,
+  green) need a darker light-theme override when used as text.
+- **Landmarks.** `base.html` has a skip link, `<header>`, `<nav>` and `<main id="main">`; standalone
+  pages put `role="main"` (or `<main>`) on their content container.
+- **Keyboard.** `static/js/a11y.js` (loaded on every full page) gives any `[onclick]` div/span
+  `tabindex=0`, a button/link role and Enter/Space, including elements added later. Prefer a real
+  `<button>`/`<a>` in new markup. Dialogs move focus in, trap Tab and close on Escape (the chat's
+  risky-action confirmation and the consent screen do).
+- **Closed modals/panels** set `visibility: hidden` as well as `opacity: 0`; opacity alone leaves
+  them readable by screen readers and reachable with Tab.
+- **Labels** use `for=` (or wrap the field); dropdowns without a visible label get `aria-label`.
+- **Chat** announces "Working on it" and then the finished reply through `#replyAnnouncer`
+  (`role=status`); the message list itself is not live, or every streamed word would be read.
+Guard: `tests/test_accessibility.py`. Automated checks catch only part of WCAG; test with VoiceOver
+on an iPhone before major releases.
 
 ### Settings in one place (2026-10-16, owner request)
 Settings is reached from the **profile icon** (base.html `#accountMenu`: Settings, Billing & credits,

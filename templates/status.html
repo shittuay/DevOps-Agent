@@ -17,7 +17,7 @@
       --orange:   #FF4D1C;
       --orange2:  #F7931E;
       --text:     #E8EAF0;
-      --muted:    #6B7592;
+      --muted:    #8A93AD;
       --green:    #22c55e;
       --yellow:   #f59e0b;
       --red:      #ef4444;
@@ -82,7 +82,7 @@
     .nav-links a:hover { color: var(--text); }
     .nav-cta {
       background: var(--orange);
-      color: white !important;
+      color: var(--on-accent, #0a0e1a) !important;
       padding: 6px 16px;
       border-radius: 6px;
       font-weight: 600;
@@ -230,7 +230,7 @@
   </div>
 </nav>
 
-<div class="page">
+<div class="page" role="main" id="main">
 
   <!-- Flash message -->
   {% if flash_msg %}
@@ -260,7 +260,7 @@
       {{ badge_text }}
     </div>
 
-    <div class="hero-title">System Status</div>
+    <h1 class="hero-title">System Status</h1>
     <div class="hero-sub">Health of the DevOps Agent platform and the providers it depends on</div>
   </div>
 
@@ -317,5 +317,6 @@
 
 </script>
 
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

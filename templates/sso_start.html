@@ -33,7 +33,7 @@
     }
     .sso-logo .mark {
       width: 36px; height: 36px; border-radius: 9px;
-      background: var(--accent-primary, #ff6b35); color: #fff;
+      background: var(--accent-primary, #ff6b35); color: var(--on-accent, #0a0e1a);
       display: flex; align-items: center; justify-content: center;
       font-family: 'IBM Plex Mono', monospace; font-weight: 700;
     }
@@ -50,7 +50,7 @@
     input[type="email"]:focus { outline: none; border-color: var(--accent-primary, #ff6b35); }
     .btn-primary {
       width: 100%; padding: 13px; font-size: 15px; font-weight: 700;
-      background: var(--accent-primary, #ff6b35); color: #fff;
+      background: var(--accent-primary, #ff6b35); color: var(--on-accent, #0a0e1a);
       border: none; border-radius: 10px; cursor: pointer;
       transition: filter 0.2s;
     }
@@ -89,5 +89,6 @@
       <a href="{{ url_for('auth.login') }}">&larr; Back to password login</a>
     </div>
   </div>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

@@ -22,8 +22,8 @@
       --cyan:    #00CFFF;
       --green:   #00FF9D;
       --text:    #E2EAF8;
-      --text2:   #6B7A99;
-      --text3:   #3D4F72;
+      --text2:   #8B97B3;
+      --text3:   #76849F;
       --mono:    'DM Mono', monospace;
       --display: 'Bebas Neue', sans-serif;
       --body:    'Epilogue', sans-serif;
@@ -98,7 +98,7 @@
       font-family: var(--mono);
       font-size: 13px;
       font-weight: 500;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
     }
 
     .nav-logo-text {
@@ -129,7 +129,7 @@
       font-family: var(--body);
       font-size: 13px;
       font-weight: 700;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       background: var(--orange);
       border: none;
       border-radius: 6px;
@@ -141,8 +141,8 @@
     .btn-primary:hover { background: var(--orange2); transform: translateY(-1px); }
 
     /* .nav-right a outranks .btn-primary — keep the CTA text white */
-    .nav-right a.btn-primary { color: #fff; }
-    .nav-right a.btn-primary:hover { color: #fff; }
+    .nav-right a.btn-primary { color: #0a0e1a; }
+    .nav-right a.btn-primary:hover { color: #0a0e1a; }
 
     .theme-toggle {
       background: none;
@@ -509,6 +509,8 @@
       nav { padding: 0 20px; }
       .docs-footer { padding: 24px; flex-direction: column; gap: 16px; }
     }
+    /* Plain links: the browser default blue is unreadable on this dark page. */
+    main a:not([class]), .content a:not([class]) { color: var(--orange2); }
   </style>
 </head>
 <body>
@@ -912,7 +914,7 @@
       <table class="docs-table"><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>get_deployment_rollout_status</code></td><td>Rollout progress</td></tr><tr><td><code>blue_green_switch</code></td><td>Switch traffic between blue and green</td></tr><tr><td><code>canary_update_weight</code></td><td>Change canary traffic weight</td></tr><tr><td><code>run_smoke_test</code></td><td>HTTP smoke test of a URL</td></tr><tr><td><code>auto_rollback_deployment</code></td><td>Roll back if health checks fail</td></tr></tbody></table>
 
       <h3 class="subsection-title">Example prompts</h3>
-      <pre class="code-block">Why did the last GitHub Actions run on my-org/api fail?
+      <pre tabindex="0" class="code-block">Why did the last GitHub Actions run on my-org/api fail?
 Show me all failing Jenkins jobs
 Get the last 50 lines of logs from build #142 of the api-service job
 Retry the failed pipeline on my GitLab project</pre>
@@ -1156,12 +1158,12 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
 
       <h3 class="subsection-title">Authentication</h3>
       <p>Pass your API key in the <code>X-API-Key</code> header on every request:</p>
-      <pre class="code-block">X-API-Key: YOUR_API_KEY</pre>
+      <pre tabindex="0" class="code-block">X-API-Key: YOUR_API_KEY</pre>
       <p><code>Authorization: Bearer YOUR_API_KEY</code> also works. Keys in the URL (<code>?api_key=</code>) are refused, because URLs end up in logs.</p>
       <p>A key can only do what its scopes allow: <code>read</code> reads resources, costs and tools; <code>agent</code> (what Settings creates) also chats and runs tools; <code>write</code> runs tools; <code>admin</code> does everything. A key with an IP allow-list only works from those addresses.</p>
 
       <h3 class="subsection-title">Base URL</h3>
-      <pre class="code-block">https://devopsagent.io/api-gateway/v1</pre>
+      <pre tabindex="0" class="code-block">https://devopsagent.io/api-gateway/v1</pre>
 
       <h3 class="subsection-title">Endpoints</h3>
       <table class="docs-table">
@@ -1186,9 +1188,9 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
       <p>When the limit is exceeded the API returns <code>429 Too Many Requests</code>.</p>
 
       <h3 class="subsection-title">Example — list resources</h3>
-      <pre class="code-block">curl https://devopsagent.io/api-gateway/v1/resources \
+      <pre tabindex="0" class="code-block">curl https://devopsagent.io/api-gateway/v1/resources \
   -H "X-API-Key: YOUR_API_KEY"</pre>
-      <pre class="code-block">{
+      <pre tabindex="0" class="code-block">{
   "resources": [
     { "id": 1, "name": "prod-web-01", "type": "ec2", "provider": "aws", "status": "running", "region": "us-east-1" },
     { "id": 2, "name": "prod-db",     "type": "rds", "provider": "aws", "status": "available", "region": "us-east-1" }
@@ -1226,7 +1228,7 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
 
       <h3 class="subsection-title">Connect via Claude Desktop (npm)</h3>
       <p>Create an API key in <a href="/settings#api-keys">Settings → API Keys</a>. Then add this to <code>claude_desktop_config.json</code> (macOS: <code>~/Library/Application Support/Claude/</code>, Windows: <code>%APPDATA%\Claude\</code>). It needs Node.js 18 or later.</p>
-      <pre class="code-block">{
+      <pre tabindex="0" class="code-block">{
   "mcpServers": {
     "devops-agent": {
       "command": "npx",
@@ -1288,7 +1290,7 @@ Close all acknowledged OpsGenie alerts from the last hour</div>
       </table>
 
       <h3 class="subsection-title">Example — streamable HTTP (Claude.ai)</h3>
-      <pre class="code-block">POST https://devopsagent.io/mcp
+      <pre tabindex="0" class="code-block">POST https://devopsagent.io/mcp
 Authorization: Bearer YOUR_ACCESS_TOKEN
 Content-Type: application/json
 
@@ -1301,7 +1303,7 @@ Content-Type: application/json
     "arguments": { "region": "us-east-1" }
   }
 }</pre>
-      <pre class="code-block">{
+      <pre tabindex="0" class="code-block">{
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
@@ -1553,5 +1555,6 @@ Content-Type: application/json
     applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
   });
 </script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>

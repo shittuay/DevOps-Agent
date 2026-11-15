@@ -117,7 +117,7 @@
         .sync-btn:hover:not(:disabled) {
             background: var(--accent-primary);
             border-color: var(--accent-primary);
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
         }
 
         .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -635,7 +635,7 @@
         .btn-primary-md {
             padding: 10px 22px;
             background: var(--gradient-primary);
-            color: #fff;
+            color: var(--on-accent, #0a0e1a);
             border: none;
             border-radius: 8px;
             font-size: 14px;
@@ -777,7 +777,7 @@
             height: 32px;
             border-radius: 50%;
             background: var(--gradient-primary);
-            color: white;
+            color: var(--on-accent, #0a0e1a);
             font-weight: 700;
             font-size: 14px;
             margin-bottom: 12px;
@@ -875,7 +875,7 @@
         <div id="dashContent" style="display:none;">
             <div class="dash-title-row">
                 <div>
-                    <div class="dash-title">Infrastructure</div>
+                    <h1 class="dash-title" style="margin:0;">Infrastructure</h1>
                     <div class="dash-title-sub" id="lastSyncedText">Syncing data... <span id="refreshBadge" style="margin-left:12px;font-size:0.7rem;color:var(--accent-primary);opacity:0.7;"></span></div>
                 </div>
             </div>
@@ -954,7 +954,7 @@
                 <div class="empty-icon">
                     <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke-linecap="round" stroke-linejoin="round"/><polyline points="3.27 6.96 12 12.01 20.73 6.96" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="22.08" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </div>
-                <div class="empty-title">No infrastructure synced</div>
+                <h1 class="empty-title" style="margin:0 0 8px;">No infrastructure synced</h1>
                 <div class="empty-desc">Get started in 3 steps to see your resources, costs, and optimization opportunities.</div>
                 <div class="onboarding-steps">
                     <div class="onboarding-step">

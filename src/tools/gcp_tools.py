@@ -2081,7 +2081,9 @@ def get_tools() -> List[Dict[str, Any]]:
         },
         {
             'name': 'query_bigquery',
-            'description': 'Execute a BigQuery SQL query',
+            'description': 'Execute a BigQuery SQL query (any statement, including DML/DDL that changes or drops data)',
+            # Arbitrary SQL: DELETE/UPDATE/DROP/TRUNCATE run with the user's credentials.
+            'capability': {'permission': 'modify', 'mutating': True, 'reversible': False},
             'input_schema': {
                 'type': 'object',
                 'properties': {

@@ -23,8 +23,8 @@
       --cyan:      #00CFFF;
       --green:     #00FF9D;
       --text:      #E2EAF8;
-      --text2:     #6B7A99;
-      --text3:     #3D4F72;
+      --text2:     #8B97B3;
+      --text3:     #76849F;
       --mono:      'DM Mono', monospace;
       --display:   'Bebas Neue', sans-serif;
       --body:      'Epilogue', sans-serif;
@@ -134,7 +134,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       font-family: var(--mono);
       font-weight: 700;
       font-size: 22px;
@@ -213,7 +213,7 @@
     .feature-icon.k8s    { background: linear-gradient(135deg, var(--green), #00c97a); }
     .feature-icon.sec    { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
 
-    .feature-content h3 {
+    .feature-content h2, .feature-content h3 {
       font-family: var(--body);
       font-size: 16px;
       font-weight: 700;
@@ -370,7 +370,7 @@
       background: linear-gradient(135deg, var(--orange), var(--orange2));
       border: none;
       border-radius: 10px;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       font-family: var(--body);
       font-size: 16px;
       font-weight: 700;
@@ -449,12 +449,16 @@
       z-index: 1000;
       opacity: 0;
       pointer-events: none;
-      transition: opacity .3s ease;
+      /* visibility, not just opacity: a closed modal must be out of reach of Tab and screen readers. */
+      visibility: hidden;
+      transition: opacity .3s ease, visibility 0s linear .3s;
     }
 
     .modal-overlay.active {
       opacity: 1;
       pointer-events: auto;
+      visibility: visible;
+      transition: opacity .3s ease, visibility 0s;
     }
 
     .modal {
@@ -607,7 +611,7 @@
       padding: 10px 24px;
       background: linear-gradient(135deg, var(--orange), var(--orange2));
       border-radius: 8px;
-      color: #fff;
+      color: var(--on-accent, #0a0e1a);
       font-size: 14px;
       font-weight: 700;
       text-decoration: none;
@@ -656,7 +660,7 @@
   </style>
 </head>
 <body>
-  <div class="split-container">
+  <div class="split-container" role="main" id="main">
     <!-- Left: features -->
     <div class="features-side">
       <div class="features-content">
@@ -674,7 +678,7 @@
           <div class="feature-item" onclick="openModal('cloud')">
             <div class="feature-icon cloud">AWS</div>
             <div class="feature-content">
-              <h3>Multi-Cloud Management</h3>
+              <h2>Multi-Cloud Management</h2>
               <p>AWS, Azure, and GCP resources with natural language</p>
             </div>
           </div>
@@ -682,7 +686,7 @@
           <div class="feature-item" onclick="openModal('cicd')">
             <div class="feature-icon cicd">CI</div>
             <div class="feature-content">
-              <h3>CI/CD Automation</h3>
+              <h2>CI/CD Automation</h2>
               <p>Jenkins, GitHub Actions, GitLab, Docker, Terraform</p>
             </div>
           </div>
@@ -690,7 +694,7 @@
           <div class="feature-item" onclick="openModal('kubernetes')">
             <div class="feature-icon k8s">K8s</div>
             <div class="feature-content">
-              <h3>Kubernetes Management</h3>
+              <h2>Kubernetes Management</h2>
               <p>Pods, deployments, services, and cluster operations</p>
             </div>
           </div>
@@ -698,7 +702,7 @@
           <div class="feature-item" onclick="openModal('security')">
             <div class="feature-icon sec">SEC</div>
             <div class="feature-content">
-              <h3>Security and Monitoring</h3>
+              <h2>Security and Monitoring</h2>
               <p>Compliance scanning, alerting, cost optimization</p>
             </div>
           </div>
@@ -975,5 +979,6 @@
       }
     });
   </script>
+<script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
 </html>
