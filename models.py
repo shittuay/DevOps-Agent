@@ -1889,6 +1889,30 @@ class OrganizationDomain(db.Model):
         return f'<OrganizationDomain {self.domain} org={self.organization_id}>'
 
 
+class OrganizationInvitation(db.Model):
+    """A pending invitation to join an organization, bound to one email address.
+
+    Only a SHA-256 of the token is stored, so a database read can't be turned into
+    working invite links.
+    """
+    __tablename__ = 'organization_invitations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organizations.id'), nullable=False, index=True)
+    email = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='member')
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    invited_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    accepted_at = db.Column(db.DateTime)
+    accepted_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    revoked_at = db.Column(db.DateTime)
+
+    organization = db.relationship('Organization')
+    inviter = db.relationship('User', foreign_keys=[invited_by])
+
+
 class OrganizationMember(db.Model):
     """Organization membership"""
     __tablename__ = 'organization_members'

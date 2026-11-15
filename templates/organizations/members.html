@@ -5,10 +5,19 @@
     <div class="page-header">
         <h1>Members</h1>
         <div>
+            {% if current_membership.role in ['owner', 'admin'] %}
             <button class="btn btn-primary" onclick="showInviteModal()">Invite Member</button>
+            {% endif %}
             <a href="{{ url_for('organizations.view_organization', org_id=organization.id) }}" class="btn btn-secondary">Back</a>
         </div>
     </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}" role="status">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
     <div class="card">
         <div class="card-body">
             <table class="table">
@@ -21,9 +30,23 @@
                         <td>{{ member.role }}</td>
                         <td>{{ member.accepted_at.strftime('%Y-%m-%d') if member.accepted_at else 'Pending' }}</td>
                         <td>
-                            {% if member.role != 'owner' %}
-                            <button class="btn btn-sm btn-secondary" onclick="changeRole({{ member.id }})">Change Role</button>
-                            <button class="btn btn-sm btn-danger" onclick="removeMember({{ member.id }})">Remove</button>
+                            {% if current_membership.role in ['owner', 'admin'] and member.user_id != current_user.id
+                                  and (member.role != 'owner' or current_membership.role == 'owner') %}
+                            <form method="POST" class="inline-form"
+                                  action="{{ url_for('organizations.update_member_role', org_id=organization.id, user_id=member.user_id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <select name="role" class="form-control form-control-sm" aria-label="Role for {{ member.user.email }}">
+                                    {% for r in (['owner'] if current_membership.role == 'owner' else []) + ['admin', 'member', 'billing', 'viewer'] %}
+                                    <option value="{{ r }}" {% if r == member.role %}selected{% endif %}>{{ r|capitalize }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-secondary">Change role</button>
+                            </form>
+                            <form method="POST" class="inline-form" onsubmit="return confirm('Remove this member?');"
+                                  action="{{ url_for('organizations.remove_member', org_id=organization.id, user_id=member.user_id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                            </form>
                             {% endif %}
                         </td>
                     </tr>
@@ -34,6 +57,33 @@
             </table>
         </div>
     </div>
+
+    {% if invitations %}
+    <div class="card" style="margin-top: 20px;">
+        <div class="card-body">
+            <h3>Pending invitations</h3>
+            <table class="table">
+                <thead><tr><th>Email</th><th>Role</th><th>Expires</th><th>Actions</th></tr></thead>
+                <tbody>
+                    {% for inv in invitations %}
+                    <tr>
+                        <td>{{ inv.email }}</td>
+                        <td>{{ inv.role }}</td>
+                        <td>{{ inv.expires_at.strftime('%Y-%m-%d') }}</td>
+                        <td>
+                            <form method="POST" class="inline-form"
+                                  action="{{ url_for('organizations.revoke_invitation', org_id=organization.id, invitation_id=inv.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-secondary">Cancel invitation</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <div id="inviteModal" class="modal" style="display:none;">
@@ -69,15 +119,13 @@
 .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-content { background: var(--card-bg); padding: 30px; border-radius: 8px; width: 400px; }
 .form-group { margin-bottom: 15px; }
+.inline-form { display: inline-flex; gap: 6px; align-items: center; margin: 2px 4px 2px 0; }
+.form-control-sm { width: auto; padding: 4px 6px; }
+.alert { padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; border: 1px solid var(--border-color); word-break: break-all; }
 .form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; }
 </style>
 <script>
 function showInviteModal() { document.getElementById('inviteModal').style.display = 'flex'; }
 function hideInviteModal() { document.getElementById('inviteModal').style.display = 'none'; }
-function removeMember(id) {
-    if (confirm('Remove this member?')) {
-        fetch('/organizations/{{ organization.id }}/members/' + id + '/remove', {method: 'POST'}).then(() => location.reload());
-    }
-}
 </script>
 {% endblock %}
