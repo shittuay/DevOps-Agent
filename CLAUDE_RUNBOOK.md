@@ -4262,3 +4262,19 @@ Reviewed everything merged 2026-10-29 to 2026-11-02 (mostly the iPhone app groun
   into the app, so nobody is locked out. Email-code MFA setup still verifies (it does prove it).
 - Guard: `tests/test_org_invitations.py`. The old `OrganizationMember.invitation_token` column
   is left in place, unused.
+
+## 2026-11-16 scheduled review: read escape hatches disclosed secrets without confirmation
+
+- **Symptom (latent, found by review):** `aws_api_read`, `azure_api_read` and `k8s_api_read` are
+  low risk (no confirmation) and only checked that the method name looked like a read.
+  `get_secret_value`, `get_parameter` with `WithDecryption`, `sts.get_session_token`,
+  `ecr.get_authorization_token`, `ec2.get_password_data`, Azure `list_keys` /
+  `list_cluster_admin_credentials` / `list_application_settings`, and Kubernetes
+  `read_namespaced_secret` all passed. The dedicated tools for the same data
+  (`list_storage_account_keys`, `get_secret_value`, ...) are high risk for exactly this reason.
+- **Fix:** each hatch refuses those calls before building a client, with
+  `error_code: SecretDisclosureRefused`. The write hatches already reject read-shaped names, so
+  the refusal can't be routed round. `secret_detector` redaction was not enough on its own: it
+  only matches known secret formats, and a database password or app setting has none.
+- Guard: `tests/test_api_read_secret_refusal.py`. Running tests was not permitted in the
+  routine's sandbox, so CI is its first run.
