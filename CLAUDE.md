@@ -2285,10 +2285,19 @@ address matches (GET shows a confirm page). The Members page's Remove/Change rol
 posting the user id. TOTP setup no longer sets `email_verified` (a 2FA user still gets into the app via
 `enforce_email_verification`). Guard: `tests/test_org_invitations.py`.
 
-Still open from that review (not fixed): login messages reveal which
-accounts exist; sandbox mode is ignored on `api/v1` and `/v1/agent`;
-`query_bigquery` unclassified; `*_api_read` can read secret
-values; the map's `esc()`.
+2026-11-17 scheduled review: **the generic read escape hatches no longer return secret values.**
+They run with no confirmation prompt, yet `aws_api_read('secretsmanager','get_secret_value')`,
+Azure `storage_accounts.list_keys` and `k8s_api_read('core','read_namespaced_secret')` returned the
+same plaintext the dedicated high-risk tools gate. `aws_api_read` refuses `_SECRET_READ_OPERATIONS`
+(secret values, Windows passwords, STS/ECR/Redshift/SSO credentials) and SSM reads with
+`WithDecryption`; `azure_api_read` refuses `_AZURE_SECRET_READ_METHODS` (keys, SAS, credentials);
+`k8s_api_read` replaces every Secret value with `[REDACTED]` (names and keys kept). GCP's secret
+read (`versions.access`) was already not read-shaped. Add to those sets when a new key- or
+credential-returning read appears. Guard: `tests/test_api_read_secret_values.py`.
+
+Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
+`api/v1` and `/v1/agent`; `POST /api/push/devices` moves a known APNs token to any signed-in
+account; the Kimi rate-limit retry in `core.py` bypasses `kimi_create_with_fallback`.
 
 2026-11-11 scheduled review: **Settings > Learning escapes the session summary** (summary,
 topics, key lessons, domain labels went into `innerHTML` raw; the summary is Haiku output from a
@@ -2298,9 +2307,6 @@ transcript that includes cloud tool results, so a crafted resource tag could pla
 non-numeric deltas (one used to 500 the whole summary). It also sends the transcript to
 Anthropic, so it is now in `AI_ENDPOINTS` and the app's consent screen. Guard:
 `tests/test_learning_summary_hardening.py`.
-accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
-`*_api_read` can read secret
-values; stored XSS in Settings > Learning and the map's `esc()`.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
