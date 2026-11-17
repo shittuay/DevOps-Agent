@@ -13222,6 +13222,39 @@ def get_aws_resource_inventory(
 # ── Read-only operations that are always safe to call without confirmation ──
 _READ_PREFIXES = ('describe_', 'list_', 'get_', 'head_', 'check_', 'search_', 'scan_', 'query_', 'select_', 'batch_get_')
 
+# Read-shaped operations that return a secret value or mint a credential. aws_api_read runs
+# without a confirmation prompt, so these are refused there: the value would go into the chat,
+# the tool trace and the model provider (the same disclosure the dedicated high-risk tools gate).
+_SECRET_READ_OPERATIONS = frozenset({
+    ('secretsmanager', 'get_secret_value'),
+    ('secretsmanager', 'batch_get_secret_value'),
+    ('ec2', 'get_password_data'),
+    ('sts', 'get_session_token'),
+    ('sts', 'get_federation_token'),
+    ('ecr', 'get_authorization_token'),
+    ('ecr-public', 'get_authorization_token'),
+    ('codeartifact', 'get_authorization_token'),
+    ('redshift', 'get_cluster_credentials'),
+    ('redshift', 'get_cluster_credentials_with_iam'),
+    ('redshift-serverless', 'get_credentials'),
+    ('cognito-identity', 'get_credentials_for_identity'),
+    ('sso', 'get_role_credentials'),
+    ('lightsail', 'get_instance_access_details'),
+})
+_SSM_DECRYPTING_READS = frozenset({
+    'get_parameter', 'get_parameters', 'get_parameters_by_path', 'get_parameter_history',
+})
+
+
+def _aws_secret_read_refusal(service: str, operation: str, params: Optional[Dict[str, Any]]) -> Optional[str]:
+    svc, op = service.lower(), operation.lower()
+    if (svc, op) in _SECRET_READ_OPERATIONS:
+        return f'{service}.{operation} returns a secret value or credential'
+    if svc == 'ssm' and op in _SSM_DECRYPTING_READS and (params or {}).get('WithDecryption'):
+        return f'{service}.{operation} with WithDecryption returns decrypted SecureString values'
+    return None
+
+
 def aws_api_read(
     service: str,
     operation: str,
@@ -13242,6 +13275,13 @@ def aws_api_read(
             'success': False,
             'error': f'"{operation}" does not look like a read-only operation. '
                      'Use aws_api_write for create/update/delete/put operations.'
+        }
+    refusal = _aws_secret_read_refusal(service, operation, params)
+    if refusal:
+        return {
+            'success': False,
+            'error': f'{refusal}, so it is not available here. Secret values are never read '
+                     'into chat; ask the user to view it in the AWS console.',
         }
     try:
         client = _get_boto_client(service.lower(), region)

@@ -2568,6 +2568,19 @@ def _is_k8s_read(method: str) -> bool:
     return any(method.lower().startswith(p) for p in _K8S_READ_PREFIXES)
 
 
+def _redact_secret_values(result: Any) -> Any:
+    """Keep a Secret's names, keys and metadata; replace every value. k8s_api_read has no
+    confirmation prompt, so a Secret's data must not reach the chat or the model provider."""
+    objs = result.get('items') if isinstance(result, dict) and isinstance(result.get('items'), list) else [result]
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        for field in ('data', 'string_data', 'stringData'):
+            if isinstance(obj.get(field), dict):
+                obj[field] = {k: '[REDACTED]' for k in obj[field]}
+    return result
+
+
 def k8s_api_read(
     api_group: str,
     method: str,
@@ -2607,6 +2620,8 @@ def k8s_api_read(
         # Convert response object to serializable dict
         if hasattr(result, 'to_dict'):
             result = result.to_dict()
+        if 'secret' in method.lower():
+            result = _redact_secret_values(result)
         return {'success': True, 'api_group': api_group, 'method': method, 'result': result}
     except ApiException as e:
         return {'success': False, 'error': str(e), 'status_code': e.status}
