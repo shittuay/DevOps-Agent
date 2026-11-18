@@ -13222,6 +13222,28 @@ def get_aws_resource_inventory(
 # ── Read-only operations that are always safe to call without confirmation ──
 _READ_PREFIXES = ('describe_', 'list_', 'get_', 'head_', 'check_', 'search_', 'scan_', 'query_', 'select_', 'batch_get_')
 
+# Read-prefixed operations that return a live secret or credential (secret values, instance
+# passwords, registry/STS tokens, database passwords, SSH keys). aws_api_read is low risk and
+# needs no confirmation, so it must never return these; the agent has no AWS tool that reads
+# secret values, by design (safety.py: get_secret_value / create_ec2_keypair).
+_AWS_SECRET_READ_MARKERS = (
+    'secret_value', 'password_data', 'master_user_password', 'authorization_token',
+    'session_token', 'federation_token', 'open_id_token', 'credentials', 'access_details',
+)
+
+
+def _aws_read_discloses_secret(op_lower: str, params: Optional[Dict[str, Any]]) -> bool:
+    if any(m in op_lower for m in _AWS_SECRET_READ_MARKERS):
+        return True
+    # ssm get_parameter(s)(_by_path) / get_parameter_history decrypt SecureStrings on request.
+    return op_lower.startswith('get_parameter') and bool((params or {}).get('WithDecryption'))
+
+
+SECRET_READ_REFUSAL = ('"{op}" returns secret values (passwords, keys or tokens). DevOps Agent '
+                       'does not read secrets through the generic read tool; read the value in '
+                       'your provider\'s console instead. Names and metadata can still be listed.')
+
+
 def aws_api_read(
     service: str,
     operation: str,
@@ -13243,6 +13265,8 @@ def aws_api_read(
             'error': f'"{operation}" does not look like a read-only operation. '
                      'Use aws_api_write for create/update/delete/put operations.'
         }
+    if _aws_read_discloses_secret(op_lower, params):
+        return {'success': False, 'error': SECRET_READ_REFUSAL.format(op=operation)}
     try:
         client = _get_boto_client(service.lower(), region)
         method = getattr(client, op_lower, None)

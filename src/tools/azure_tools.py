@@ -1604,6 +1604,19 @@ def _is_azure_read(operation: str) -> bool:
     return any(op.startswith(p) for p in _AZURE_READ_PREFIXES)
 
 
+# list_keys (storage, Cosmos, Redis), list_credentials (ACR), list_cluster_admin_credentials
+# (AKS kubeconfig), list_publishing_credentials / list_application_settings /
+# list_connection_strings (App Service), list_account_sas ... all return live secrets.
+# list_storage_account_keys is high risk for exactly this reason; azure_api_read is not.
+_AZURE_SECRET_READ_MARKERS = ('keys', 'credential', 'secret', 'connection_string',
+                              'publishing', 'application_settings', 'sas')
+
+
+def _azure_read_discloses_secret(operation: str) -> bool:
+    op = operation.lower().split('.')[-1]
+    return any(m in op for m in _AZURE_SECRET_READ_MARKERS)
+
+
 def _azure_execute(client_type: str, operation_path: str, params: Optional[Dict[str, Any]]) -> Any:
     """Navigate Azure SDK client hierarchy and call a method. Handles paged iterators."""
     client = _get_azure_client(client_type)
@@ -1644,6 +1657,9 @@ def azure_api_read(
     """
     if not _is_azure_read(operation_path):
         return {'success': False, 'error': f'"{operation_path}" does not look like a read operation. Use azure_api_write for create/update/delete.'}
+    if _azure_read_discloses_secret(operation_path):
+        from src.tools.aws_tools import SECRET_READ_REFUSAL
+        return {'success': False, 'error': SECRET_READ_REFUSAL.format(op=operation_path)}
     try:
         result = _azure_execute(client_type, operation_path, params)
         return {'success': True, 'client_type': client_type, 'operation': operation_path, 'result': result}
