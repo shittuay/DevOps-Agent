@@ -2285,10 +2285,21 @@ address matches (GET shows a confirm page). The Members page's Remove/Change rol
 posting the user id. TOTP setup no longer sets `email_verified` (a 2FA user still gets into the app via
 `enforce_email_verification`). Guard: `tests/test_org_invitations.py`.
 
-Still open from that review (not fixed): login messages reveal which
-accounts exist; sandbox mode is ignored on `api/v1` and `/v1/agent`;
-`query_bigquery` unclassified; `*_api_read` can read secret
-values; the map's `esc()`.
+2026-11-19 scheduled review: **the generic read escape hatches no longer hand out secrets
+unconfirmed.** `aws_api_read('secretsmanager','get_secret_value')`, `ssm get_parameter(s)` (SecureString
+plaintext), STS/SSO/ECR/Redshift credential calls, `azure_api_read` on a `*key*`/`*credential*`/`*sas*`
+operation (`storage_accounts.list_keys`, AKS admin kubeconfig) and `k8s_api_read` on a `*secret*` method
+all ran as low risk, while the dedicated tools for the same values are high risk.
+`secret_detector.escape_hatch_secret_read()` names those calls; `safety.validate_tool_call` makes them
+high risk, and `discloses_secret()` (used by `approval_service.stored_result` and
+`core._stored_change_result`, which now take `tool_input`) keeps their approved result as a one-time
+download, never stored. GCP needs nothing: Secret Manager's `access` is not a read method, so
+`gcp_api_read` already refuses it. Add an operation to `_AWS_SECRET_READS` when a new credential-returning
+read turns up. Guard: `tests/test_api_read_secret_gate.py`.
+
+Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
+`api/v1` and `/v1/agent`. Checked 2026-11-19 and no longer open: the map's `esc()` escapes quotes,
+`query_bigquery` is classified (11-14), MCP PKCE (11-12), Settings > Learning XSS (11-11).
 
 2026-11-11 scheduled review: **Settings > Learning escapes the session summary** (summary,
 topics, key lessons, domain labels went into `innerHTML` raw; the summary is Haiku output from a
@@ -2298,9 +2309,6 @@ transcript that includes cloud tool results, so a crafted resource tag could pla
 non-numeric deltas (one used to 500 the whole summary). It also sends the transcript to
 Anthropic, so it is now in `AI_ENDPOINTS` and the app's consent screen. Guard:
 `tests/test_learning_summary_hardening.py`.
-accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
-`*_api_read` can read secret
-values; stored XSS in Settings > Learning and the map's `esc()`.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 
