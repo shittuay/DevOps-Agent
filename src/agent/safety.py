@@ -740,6 +740,20 @@ class SafetyValidator:
         input_str = str(tool_input).lower()
         targets_production = 'production' in input_str or 'prod' in input_str
 
+        # Special case: a generic *_api_read call that returns a secret is
+        # as risky as the dedicated tool for it (get_secret_value etc.).
+        if tool_name in ('aws_api_read', 'azure_api_read', 'k8s_api_read'):
+            from services.secret_detector import escape_hatch_secret_read
+            secret_call = escape_hatch_secret_read(tool_name, tool_input)
+            if secret_call:
+                return ValidationResult(
+                    is_safe=True,
+                    reason=f"High-risk operation: {secret_call} returns a secret value"
+                           + (" on production" if targets_production else ""),
+                    requires_confirmation=True,
+                    risk_level='critical' if targets_production else 'high'
+                )
+
         # Special case: manage_ec2_instance is action-aware
         if tool_name == 'manage_ec2_instance':
             action = tool_input.get('action', '').lower()
