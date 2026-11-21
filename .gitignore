@@ -38,6 +38,8 @@ build/
 
 # Virtual environments
 venv/
+/venv
+/venv-py3*/
 env/
 .venv/
 

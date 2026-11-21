@@ -2551,6 +2551,12 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   that job's `python-version`. `.github/dependabot.yml` (added 2026-11-20) ignores Pillow >=13
   and dnspython >=2.9 so Dependabot stops reopening these bumps; its `open-pull-requests-limit: 0`
   keeps routine version updates off. Remove those ignores when the server moves to 3.11+.
+  **Moving the server to 3.11: `.github/workflows/server-python.yml`** (manual; modes `inspect`,
+  `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
+  `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
+  `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
+  `/health` fails. The systemd unit and deploy job keep using `.../venv`. `rollback` points the
+  symlink back at `venv-py310`. It shares the `deploy-production` concurrency group with the deploy.
 
 Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
 exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/` (`server.url`, with `www/offline.html` as `errorPath`);
