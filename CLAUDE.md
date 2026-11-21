@@ -2557,6 +2557,9 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
   `/health` fails. The systemd unit and deploy job keep using `.../venv`. `rollback` points the
   symlink back at `venv-py310`. It shares the `deploy-production` concurrency group with the deploy.
+  The server disk is small (1.5 GB free on 2026-11-20), so `upgrade` clears the pip and apt
+  caches, installs with `--no-cache-dir`, and refuses to start unless free space is at least the
+  old venv plus 700 MB; `inspect` prints the venv, cache and journal sizes.
 
 Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
 exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/` (`server.url`, with `www/offline.html` as `errorPath`);

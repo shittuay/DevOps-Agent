@@ -69,6 +69,12 @@ jobs:
           echo "venv python: $($CODE/venv/bin/python --version 2>&1)"
           echo "Disk free: $(df -h $CODE | awk 'NR==2{print $4}')"
           echo "Service: $(systemctl is-active devops-agent)"
+          echo "venv size: $(du -sh $CODE/venv/ 2>/dev/null | cut -f1)"
+          echo "pip cache (ubuntu): $(du -sh /home/ubuntu/.cache/pip 2>/dev/null | cut -f1 || echo none)"
+          echo "pip cache (root): $(du -sh /root/.cache/pip 2>/dev/null | cut -f1 || echo none)"
+          echo "apt cache: $(du -sh /var/cache/apt/archives 2>/dev/null | cut -f1)"
+          echo "journal: $(journalctl --disk-usage 2>/dev/null | grep -o '[0-9.]*[KMG]' | head -1)"
+          echo "Largest under /var/log: $(du -sh /var/log 2>/dev/null | cut -f1)"
 
           if [ "$MODE" = inspect ]; then exit 0; fi
 
@@ -87,8 +93,20 @@ jobs:
             echo "Already on $NEW"; exit 0
           fi
 
-          echo "=== Installing Python 3.11 ==="
+          echo "=== Freeing cache space ==="
           export DEBIAN_FRONTEND=noninteractive
+          apt-get clean
+          rm -rf /home/ubuntu/.cache/pip /root/.cache/pip
+          VENV_KB=$(du -sk "$CODE/venv/" | cut -f1)
+          FREE_KB=$(df -k --output=avail "$CODE" | tail -1)
+          NEED_KB=$((VENV_KB + 700 * 1024))
+          echo "Free: $((FREE_KB / 1024)) MB, need: $((NEED_KB / 1024)) MB (old venv + 700 MB)"
+          if [ "$FREE_KB" -lt "$NEED_KB" ]; then
+            echo "Not enough disk space to build a second venv safely; nothing was changed."
+            exit 1
+          fi
+
+          echo "=== Installing Python 3.11 ==="
           if ! command -v python3.11 > /dev/null; then
             apt-get update -q
             if ! apt-cache show python3.11-venv > /dev/null 2>&1; then
@@ -103,8 +121,9 @@ jobs:
           echo "=== Building $NEW ==="
           rm -rf "$NEW"
           sudo -u ubuntu python3.11 -m venv "$NEW"
-          sudo -u ubuntu "$NEW/bin/pip" install -q --upgrade pip
-          sudo -u ubuntu "$NEW/bin/pip" install -q -r "$CODE/requirements.txt"
+          sudo -u ubuntu "$NEW/bin/pip" install -q --no-cache-dir --upgrade pip
+          sudo -u ubuntu "$NEW/bin/pip" install -q --no-cache-dir -r "$CODE/requirements.txt" \
+            || { echo "pip install failed; removing $NEW, nothing was switched"; rm -rf "$NEW"; exit 1; }
           sudo -u ubuntu "$NEW/bin/pip" check
           # Compiled dependencies load on 3.11. The full app is proven by the health check
           # after switching, which rolls back automatically if it fails.
