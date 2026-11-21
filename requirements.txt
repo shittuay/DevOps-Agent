@@ -29,7 +29,7 @@ pyopenssl==26.4.0  # pinned: requires cryptography>=49,<51 — must be bumped in
 email-validator==2.2.0
 pyotp==2.9.0
 qrcode==7.4.2
-Pillow==12.3.0  # 13.x needs Python >=3.11; the server runs 3.10 (deploys failed 2026-10-30 and 2026-11-15 when this moved to 13.0.0)
+Pillow==13.0.0  # 13.x needs Python >=3.11; the server runs 3.10 (deploys failed 2026-10-30 and 2026-11-15 when this moved to 13.0.0)
 
 # API & HTTP
 anthropic==0.72.0
@@ -153,4 +153,4 @@ pytest-cov==4.1.0
 pytest-xdist==3.5.0
 joserfc==1.7.6
 signxml==4.4.0
-dnspython==2.8.0  # 2.9.0 needs Python >=3.11. It fixes CVE-2026-114605 (CPU use on crafted DNS replies); we only do TXT lookups through the system resolver, so we accept it until the server moves to 3.11
+dnspython==2.9.2  # 2.9.0 needs Python >=3.11. It fixes CVE-2026-114605 (CPU use on crafted DNS replies); we only do TXT lookups through the system resolver, so we accept it until the server moves to 3.11
