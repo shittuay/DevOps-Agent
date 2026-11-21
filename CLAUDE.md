@@ -2538,19 +2538,13 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (all in `MANAGED_SECRET_KEYS`); without them sending is a
   no-op. APNs is HTTP/2-only, hence `h2`/`hpack`/`hyperframe` pins. Guard:
   `tests/test_push_notifications.py`.
-- **The production server runs Python 3.10** (inferred: Pillow 12.3 and dnspython 2.8, both
-  `>=3.10`, install; Pillow 13 and dnspython 2.9, `>=3.11`, broke every deploy 2026-10-30/31).
-  CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
-  It happened again on 2026-11-15: Dependabot PR #321 bumped both back to 13.0.0 / 2.9.0, CI
-  was green, and every deploy after it failed at the server's pip install (production kept the
-  old code). Since then the `server-python-check` job in `ci.yml` resolves `requirements.txt`
-  on Python 3.10 and gates `status-check`, so a Dependabot PR like that now shows red. dnspython
-  2.9.0 fixes CVE-2026-114605 (CPU use on crafted DNS replies, Debian rates it minor); we stay on
-  2.8.0 because `services/domain_verification.py` only does TXT lookups through the system
-  resolver. The real fix is moving the server venv to Python 3.11+, then raising both pins and
-  that job's `python-version`. `.github/dependabot.yml` (added 2026-11-20) ignores Pillow >=13
-  and dnspython >=2.9 so Dependabot stops reopening these bumps; its `open-pull-requests-limit: 0`
-  keeps routine version updates off. Remove those ignores when the server moves to 3.11+.
+- **The production server venv runs Python 3.11** (since 2026-11-20, via
+  `.github/workflows/server-python.yml`; it was the OS's 3.10 before). Pillow 13 and dnspython
+  2.9, both `>=3.11`, broke every deploy on 2026-10-30 and again on 2026-11-15 (Dependabot PR
+  #321) while CI, which tests on 3.11, was green. The `server-python-check` job in `ci.yml`
+  resolves `requirements.txt` on the server's Python and gates `status-check`: **keep its
+  `python-version` equal to the server venv**, and check `requires_python` on PyPI before adding
+  or bumping a pin.
 
 Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
 exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/` (`server.url`, with `www/offline.html` as `errorPath`);

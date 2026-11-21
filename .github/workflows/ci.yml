@@ -199,10 +199,9 @@ jobs:
   server-python-check:
     name: Installs on Server Python
     runs-on: ubuntu-latest
-    # The EC2 server's venv is older than the Python the tests run on (3.10 as far as we can
-    # tell: Pillow 13 and dnspython 2.9, both >=3.11, are refused there). A pin that needs a
-    # newer Python passes every other job here and only fails at the deploy's pip install,
-    # after merge. This resolves requirements.txt on the server's version first.
+    # Resolves requirements.txt on the EC2 server venv's Python before merge. A pin that needs
+    # a newer Python than the server passes every other job and only fails at the deploy's pip
+    # install (2026-10-30, 2026-11-15). Keep this equal to the server venv (server-python.yml).
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -210,9 +209,9 @@ jobs:
       - name: Set up the server's Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Resolve requirements.txt on Python 3.10
+      - name: Resolve requirements.txt on Python 3.11
         run: |
           python -m pip install --upgrade pip
           pip install --dry-run --ignore-installed -r requirements.txt
