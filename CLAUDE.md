@@ -2548,7 +2548,9 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   2.9.0 fixes CVE-2026-114605 (CPU use on crafted DNS replies, Debian rates it minor); we stay on
   2.8.0 because `services/domain_verification.py` only does TXT lookups through the system
   resolver. The real fix is moving the server venv to Python 3.11+, then raising both pins and
-  that job's `python-version`.
+  that job's `python-version`. `.github/dependabot.yml` (added 2026-11-20) ignores Pillow >=13
+  and dnspython >=2.9 so Dependabot stops reopening these bumps; its `open-pull-requests-limit: 0`
+  keeps routine version updates off. Remove those ignores when the server moves to 3.11+.
   **Moving the server to 3.11: `.github/workflows/server-python.yml`** (manual; modes `inspect`,
   `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
   `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
