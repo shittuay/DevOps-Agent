@@ -232,8 +232,10 @@ def login():
             security_logger.warning(f"Failed login attempt from {ip_address}: User not found - {email_or_username}")
             return render_template(_LOGIN_TEMPLATE, error='Invalid email/username or password')
 
+        # Only a correct password learns that the account uses SSO; otherwise the
+        # message would confirm the account exists to anyone guessing addresses.
         from services import sso_service
-        if sso_service.sso_login_required(user):
+        if password_matches and sso_service.sso_login_required(user):
             security_logger.info(f"Password login blocked (SSO enforced) for {user.email}")
             return render_template(_LOGIN_TEMPLATE,
                 error='Your organization requires single sign-on. Please use "Sign in with SSO".')
@@ -263,10 +265,9 @@ def login():
 
             security_logger.warning(f"Failed login attempt for {user.email} from {ip_address}. Attempts remaining: {attempts_remaining}")
 
-            if attempts_remaining == 0:
-                return render_template(_LOGIN_TEMPLATE, error='Account locked due to multiple failed login attempts. Try again in 15 minutes.')
-            else:
-                return render_template(_LOGIN_TEMPLATE, error=f'Invalid email/username or password. {attempts_remaining} attempts remaining before account lockout.')
+            # Same text as an unknown account: an attempts-remaining count would tell
+            # anyone with one guess that the account exists.
+            return render_template(_LOGIN_TEMPLATE, error='Invalid email/username or password')
 
     return render_template(_LOGIN_TEMPLATE)
 

@@ -2273,9 +2273,9 @@ medium risk with a `modify` capability, so it asks for confirmation and MCP no l
 `readOnlyHint` (the `query_` prefix did). `/api/learning/session-summary` (sends the chat transcript
 to Anthropic) is in `AI_ENDPOINTS` and `ai_consent.js`'s `AI_PATH`, so the iPhone app's consent gate
 covers it. Guard: `tests/test_review_2026_11_14.py`. Smells noted, not changed: that route hardcodes
-`claude-haiku-4-5-20251001` and builds its own Anthropic client; `core.py`'s Kimi rate-limit retry
-calls `client.chat.completions.create` directly instead of `kimi_create_with_fallback`; and
-`POST /api/push/devices` moves a known APNs token to any signed-in account.
+`claude-haiku-4-5-20251001` and builds its own Anthropic client; and
+`POST /api/push/devices` moves a known APNs token to any signed-in account (needs the victim's
+token, which the app never exposes).
 
 2026-11-15 scheduled review: **organization invitations work and are safe.** Inviting always 500'd
 (`OrganizationMember.user_id` is NOT NULL), so no team could add a member. Invitations now live in
@@ -2285,10 +2285,27 @@ address matches (GET shows a confirm page). The Members page's Remove/Change rol
 posting the user id. TOTP setup no longer sets `email_verified` (a 2FA user still gets into the app via
 `enforce_email_verification`). Guard: `tests/test_org_invitations.py`.
 
-Still open from that review (not fixed): login messages reveal which
-accounts exist; sandbox mode is ignored on `api/v1` and `/v1/agent`;
-`query_bigquery` unclassified; `*_api_read` can read secret
-values; the map's `esc()`.
+2026-11-21 scheduled review:
+- **The generic read escape hatches can no longer read secrets unconfirmed.** `aws_api_read`,
+  `azure_api_read` and `k8s_api_read` were low risk whatever they called, so
+  `secretsmanager.get_secret_value`, `storage_accounts.list_keys` or `read_namespaced_secret` skipped
+  the confirmation the dedicated `get_secret_value` / `list_storage_account_keys` tools require.
+  `safety.generic_read_secret_operation()` names such calls (AWS `_AWS_SECRET_READS`, SSM reads with
+  `WithDecryption`, API Gateway key reads with `includeValue(s)`; Azure operations whose name has
+  key/keys/credentials/secret/sas/publishing/connection or application settings; any K8s method with
+  "secret") and `validate_tool_call` makes them high risk. GCP's hatch already refuses `access`.
+  **Add a credential-returning AWS read to `_AWS_SECRET_READS` when you find one.**
+- **Login no longer reveals which accounts exist.** A wrong password shows the same text as an
+  unknown account (it used to add "N attempts remaining"), and the "use SSO" message appears only
+  after a correct password. The lockout message still appears for a locked account.
+- The Kimi non-streaming rate-limit retry now goes through `kimi_create_with_fallback`; the guard in
+  `tests/test_kimi_model_default.py` forbids any direct `client.chat.completions.create` in core.py.
+- The map's `esc()` was already correct; the one raw value (`n.type` in a class name) is now stripped
+  to `[a-z0-9_-]`.
+Guard: `tests/test_review_2026_11_21.py`.
+
+Still open (not fixed): sandbox mode is ignored on `api/v1` and `/v1/agent`; signup says "Email
+already registered" (rate-limited to 5/hour).
 
 2026-11-11 scheduled review: **Settings > Learning escapes the session summary** (summary,
 topics, key lessons, domain labels went into `innerHTML` raw; the summary is Haiku output from a
@@ -2298,9 +2315,6 @@ transcript that includes cloud tool results, so a crafted resource tag could pla
 non-numeric deltas (one used to 500 the whole summary). It also sends the transcript to
 Anthropic, so it is now in `AI_ENDPOINTS` and the app's consent screen. Guard:
 `tests/test_learning_summary_hardening.py`.
-accounts exist; MCP OAuth doesn't require PKCE; sandbox mode is ignored on `api/v1` and `/v1/agent`;
-`*_api_read` can read secret
-values; stored XSS in Settings > Learning and the map's `esc()`.
 
 ### Known gaps found by the 2026-10-14 docs audit (not yet fixed)
 

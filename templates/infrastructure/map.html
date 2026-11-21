@@ -561,7 +561,7 @@ function makeNode(n, p) {
     el.dataset.id = n.id;
 
     const icon = ICONS[n.type] || PICO[n.provider] || '📦';
-    const iClass = 'i-'+n.type;
+    const iClass = 'i-'+String(n.type||'').replace(/[^a-z0-9_-]/gi,'');
     const st = (n.status||'unknown').toLowerCase().replace(/[^a-z]/g,'');
     const costStr = (n.cost>0) ? '$'+n.cost.toFixed(2)+'/mo' : '';
     const subTrunc = (n.sub||'').length>22 ? (n.sub||'').slice(0,21)+'…' : (n.sub||'');
