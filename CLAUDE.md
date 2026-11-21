@@ -2549,6 +2549,12 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   2.8.0 because `services/domain_verification.py` only does TXT lookups through the system
   resolver. The real fix is moving the server venv to Python 3.11+, then raising both pins and
   that job's `python-version`.
+  **Moving the server to 3.11: `.github/workflows/server-python.yml`** (manual; modes `inspect`,
+  `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
+  `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
+  `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
+  `/health` fails. The systemd unit and deploy job keep using `.../venv`. `rollback` points the
+  symlink back at `venv-py310`. It shares the `deploy-production` concurrency group with the deploy.
 
 Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
 exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/` (`server.url`, with `www/offline.html` as `errorPath`);
