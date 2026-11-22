@@ -13242,6 +13242,66 @@ def _aws_read_discloses_secret(op_lower: str, params: Optional[Dict[str, Any]]) 
 SECRET_READ_REFUSAL = ('"{op}" returns secret values (passwords, keys or tokens). DevOps Agent '
                        'does not read secrets through the generic read tool; read the value in '
                        'your provider\'s console instead. Names and metadata can still be listed.')
+# Read-shaped operations that return secret values or mint credentials. The read
+# escape hatch runs without confirmation, so these would put a live secret into the
+# chat, the tool trace and the model provider's logs with nobody asked. They are
+# refused outright: aws_api_write rejects read-prefixed names, so there is no
+# unconfirmed path to them.
+_SECRET_READ_OPERATIONS = {
+    ('secretsmanager', 'get_secret_value'),
+    ('secretsmanager', 'batch_get_secret_value'),
+    ('sts', 'get_session_token'),
+    ('sts', 'get_federation_token'),
+    ('ecr', 'get_authorization_token'),
+    ('ecr-public', 'get_authorization_token'),
+    ('codeartifact', 'get_authorization_token'),
+    ('redshift', 'get_cluster_credentials'),
+    ('redshift', 'get_cluster_credentials_with_iam'),
+    ('redshift-serverless', 'get_credentials'),
+    ('lightsail', 'get_instance_access_details'),
+    ('lightsail', 'get_relational_database_master_user_password'),
+    ('ec2', 'get_password_data'),
+    ('sso', 'get_role_credentials'),
+    ('cognito-identity', 'get_credentials_for_identity'),
+    ('cognito-identity', 'get_open_id_token'),
+    ('cognito-identity', 'get_open_id_token_for_developer_identity'),
+    ('connect', 'get_federation_token'),
+    ('appsync', 'list_api_keys'),
+}
+
+# Operations that are metadata-only unless a parameter asks for the secret too.
+_SECRET_READ_FLAGS = {
+    ('ssm', 'get_parameter'): ('WithDecryption', True),
+    ('ssm', 'get_parameters'): ('WithDecryption', True),
+    ('ssm', 'get_parameters_by_path'): ('WithDecryption', True),
+    ('ssm', 'get_parameter_history'): ('WithDecryption', True),
+    ('apigateway', 'get_api_key'): ('includeValue', True),
+    ('apigateway', 'get_api_keys'): ('includeValues', True),
+    # Glue returns the connection password unless HidePassword is set.
+    ('glue', 'get_connection'): ('HidePassword', False),
+    ('glue', 'get_connections'): ('HidePassword', False),
+}
+
+
+def _secret_read_refusal(service: str, op_lower: str, params: Dict[str, Any]) -> Optional[str]:
+    """Return a refusal message when an aws_api_read call would disclose a secret."""
+    svc = (service or '').strip().lower()
+    key = (svc, op_lower)
+    if key in _SECRET_READ_OPERATIONS:
+        return (f'{svc}.{op_lower} returns a secret value or credentials, so it is not '
+                'available through aws_api_read. Ask the user to read it in the AWS '
+                'console; do not try another tool to fetch it.')
+    flag = _SECRET_READ_FLAGS.get(key)
+    if flag:
+        name, disclosing_value = flag
+        value = bool(params.get(name, False))
+        if value == disclosing_value:
+            if disclosing_value:
+                return (f'{svc}.{op_lower} with {name}=true returns secret values. '
+                        f'Call it without {name} to read metadata only.')
+            return (f'{svc}.{op_lower} returns stored passwords unless {name}=true. '
+                    f'Call it again with {name}=true.')
+    return None
 
 
 def aws_api_read(
@@ -13267,6 +13327,9 @@ def aws_api_read(
         }
     if _aws_read_discloses_secret(op_lower, params):
         return {'success': False, 'error': SECRET_READ_REFUSAL.format(op=operation)}
+    refusal = _secret_read_refusal(service, op_lower, params or {})
+    if refusal:
+        return {'success': False, 'error': refusal, 'error_code': 'SecretDisclosureRefused'}
     try:
         client = _get_boto_client(service.lower(), region)
         method = getattr(client, op_lower, None)

@@ -1615,6 +1615,23 @@ _AZURE_SECRET_READ_MARKERS = ('keys', 'credential', 'secret', 'connection_string
 def _azure_read_discloses_secret(operation: str) -> bool:
     op = operation.lower().split('.')[-1]
     return any(m in op for m in _AZURE_SECRET_READ_MARKERS)
+# Final method-name words that mean the call returns keys, credentials or
+# connection strings (storage_accounts.list_keys, managed_clusters
+# .list_cluster_admin_credentials, web_apps.list_application_settings, ...).
+# azure_api_read runs without confirmation, so these are refused there.
+_AZURE_SECRET_WORDS = {'key', 'keys', 'secret', 'secrets', 'credential', 'credentials',
+                       'password', 'passwords', 'sas', 'token', 'tokens'}
+_AZURE_SECRET_PHRASES = ('connection_string', 'publishing', 'application_settings', 'access_profile',
+                         'app_settings', 'profile_xml')
+
+
+def _is_azure_secret_read(operation: str) -> bool:
+    op = operation.lower().split('.')[-1]
+    if op.startswith('begin_'):
+        op = op[len('begin_'):]
+    if any(phrase in op for phrase in _AZURE_SECRET_PHRASES):
+        return True
+    return any(word in _AZURE_SECRET_WORDS for word in op.split('_')[1:])
 
 
 def _azure_execute(client_type: str, operation_path: str, params: Optional[Dict[str, Any]]) -> Any:
@@ -1660,6 +1677,11 @@ def azure_api_read(
     if _azure_read_discloses_secret(operation_path):
         from src.tools.aws_tools import SECRET_READ_REFUSAL
         return {'success': False, 'error': SECRET_READ_REFUSAL.format(op=operation_path)}
+    if _is_azure_secret_read(operation_path):
+        return {'success': False, 'error_code': 'SecretDisclosureRefused',
+                'error': f'{client_type}.{operation_path} returns keys, credentials or connection '
+                         'strings, so it is not available through azure_api_read. Ask the user to '
+                         'read it in the Azure portal; do not try another tool to fetch it.'}
     try:
         result = _azure_execute(client_type, operation_path, params)
         return {'success': True, 'client_type': client_type, 'operation': operation_path, 'result': result}
