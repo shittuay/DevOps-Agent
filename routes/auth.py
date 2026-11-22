@@ -263,10 +263,9 @@ def login():
 
             security_logger.warning(f"Failed login attempt for {user.email} from {ip_address}. Attempts remaining: {attempts_remaining}")
 
-            if attempts_remaining == 0:
-                return render_template(_LOGIN_TEMPLATE, error='Account locked due to multiple failed login attempts. Try again in 15 minutes.')
-            else:
-                return render_template(_LOGIN_TEMPLATE, error=f'Invalid email/username or password. {attempts_remaining} attempts remaining before account lockout.')
+            # Same message as an unknown account: an attempts-remaining count (shown only
+            # when the account exists) told anyone which emails are registered.
+            return render_template(_LOGIN_TEMPLATE, error='Invalid email/username or password')
 
     return render_template(_LOGIN_TEMPLATE)
 

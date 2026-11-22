@@ -19,9 +19,7 @@ AI_ENDPOINTS = (
     '/api/chat/stream',
     '/curriculum/api/ai-guide',
     '/curriculum/api/quiz/generate',
-    '/api/learning/session-summary',
     '/api/learning/session-summary',  # sends the chat transcript to Anthropic (Haiku)
-    '/api/learning/session-summary',  # sends the chat transcript to Anthropic
 )
 
 # Who receives the data; shown on the consent screen and in Settings. Keep in step with the

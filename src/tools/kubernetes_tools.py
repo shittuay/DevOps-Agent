@@ -2568,6 +2568,24 @@ def _is_k8s_read(method: str) -> bool:
     return any(method.lower().startswith(p) for p in _K8S_READ_PREFIXES)
 
 
+_LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
+
+
+def _without_secret_data(result: Any) -> Any:
+    """Drop Secret values from a read_/list_*secret* result, keeping names, types and key
+    names. `kubectl apply` also copies the whole Secret, values included, into the
+    last-applied annotation, so that goes too."""
+    items = result.get('items') if isinstance(result, dict) else None
+    for obj in (items if isinstance(items, list) else [result]):
+        if not isinstance(obj, dict):
+            continue
+        for field in ('data', 'string_data', 'stringData'):
+            if isinstance(obj.get(field), dict):
+                obj[field] = {k: '[REDACTED]' for k in obj[field]}
+        annotations = (obj.get('metadata') or {}).get('annotations')
+        if isinstance(annotations, dict) and _LAST_APPLIED in annotations:
+            annotations[_LAST_APPLIED] = '[REDACTED]'
+    return result
 def _is_k8s_secret_read(method: str, params: Dict[str, Any]) -> bool:
     """True when a read would return Secret objects (whose data is only base64)."""
     words = method.lower().split('_')
@@ -2621,6 +2639,8 @@ def k8s_api_read(
         # Convert response object to serializable dict
         if hasattr(result, 'to_dict'):
             result = result.to_dict()
+        if 'secret' in method.lower():
+            result = _without_secret_data(result)
         return {'success': True, 'api_group': api_group, 'method': method, 'result': result}
     except ApiException as e:
         return {'success': False, 'error': str(e), 'status_code': e.status}
