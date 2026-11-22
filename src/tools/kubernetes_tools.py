@@ -2568,6 +2568,15 @@ def _is_k8s_read(method: str) -> bool:
     return any(method.lower().startswith(p) for p in _K8S_READ_PREFIXES)
 
 
+def _is_k8s_secret_read(method: str, params: Dict[str, Any]) -> bool:
+    """True when a read would return Secret objects (whose data is only base64)."""
+    words = method.lower().split('_')
+    if 'secret' in words or 'secrets' in words:
+        return True
+    # CustomObjectsApi can't reach core Secrets, but a generic 'plural' could name one.
+    return str(params.get('plural', '')).lower() == 'secrets'
+
+
 def k8s_api_read(
     api_group: str,
     method: str,
@@ -2596,6 +2605,11 @@ def k8s_api_read(
     """
     if not _is_k8s_read(method):
         return {'success': False, 'error': f'"{method}" does not look like a read operation. Use k8s_api_write for create/patch/delete.'}
+    if _is_k8s_secret_read(method, params or {}):
+        return {'success': False, 'error_code': 'SecretDisclosureRefused',
+                'error': f'{method} returns Secret data, so it is not available through '
+                         'k8s_api_read. Ask the user to read it with kubectl; do not try '
+                         'another tool to fetch it.'}
     api_cls_name = _K8S_API_CLIENTS.get(api_group.lower())
     if not api_cls_name:
         return {'success': False, 'error': f'Unknown api_group "{api_group}". Valid: {", ".join(_K8S_API_CLIENTS)}'}

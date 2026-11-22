@@ -2300,6 +2300,22 @@ read turns up. Guard: `tests/test_api_read_secret_gate.py`.
 Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
 `api/v1` and `/v1/agent`. Checked 2026-11-19 and no longer open: the map's `esc()` escapes quotes,
 `query_bigquery` is classified (11-14), MCP PKCE (11-12), Settings > Learning XSS (11-11).
+2026-11-16 scheduled review: **the read escape hatches refuse secret-returning calls.**
+`aws_api_read` / `azure_api_read` / `k8s_api_read` run with no confirmation, and they would
+return Secrets Manager values, decrypted SSM parameters, STS/ECR/Redshift credentials, Windows
+passwords, Azure storage keys, AKS admin kubeconfigs, app settings and connection strings, and
+Kubernetes Secrets. Now refused before any client is built (`error_code:
+SecretDisclosureRefused`): AWS via `_SECRET_READ_OPERATIONS` plus `_SECRET_READ_FLAGS` (metadata
+allowed without `WithDecryption`/`includeValue(s)`, Glue only with `HidePassword`), Azure by
+method-name words (`_is_azure_secret_read`), Kubernetes by `secret` in the method or
+`plural=secrets`. The write hatches reject read-shaped names, so there is no unconfirmed way
+round. `gcp_api_read` was checked: Secret Manager's `access` isn't a read prefix, so it already
+goes through `gcp_api_write` and confirmation. Guard: `tests/test_api_read_secret_refusal.py`.
+
+Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
+`api/v1` and `/v1/agent`; `POST /api/push/devices` moves a known APNs token to any signed-in
+account. (`query_bigquery` was fixed 2026-11-14; the map's `esc()` now escapes quotes and is not
+used inside inline handlers.)
 
 2026-11-11 scheduled review: **Settings > Learning escapes the session summary** (summary,
 topics, key lessons, domain labels went into `innerHTML` raw; the summary is Haiku output from a
@@ -2549,6 +2565,25 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
 - **The production server runs Python 3.10** (inferred: Pillow 12.3 and dnspython 2.8, both
   `>=3.10`, install; Pillow 13 and dnspython 2.9, `>=3.11`, broke every deploy 2026-10-30/31).
   CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
+  It happened again on 2026-11-15: Dependabot PR #321 bumped both back to 13.0.0 / 2.9.0, CI
+  was green, and every deploy after it failed at the server's pip install (production kept the
+  old code). Since then the `server-python-check` job in `ci.yml` resolves `requirements.txt`
+  on Python 3.10 and gates `status-check`, so a Dependabot PR like that now shows red. dnspython
+  2.9.0 fixes CVE-2026-114605 (CPU use on crafted DNS replies, Debian rates it minor); we stay on
+  2.8.0 because `services/domain_verification.py` only does TXT lookups through the system
+  resolver. The real fix is moving the server venv to Python 3.11+, then raising both pins and
+  that job's `python-version`. `.github/dependabot.yml` (added 2026-11-20) ignores Pillow >=13
+  and dnspython >=2.9 so Dependabot stops reopening these bumps; its `open-pull-requests-limit: 0`
+  keeps routine version updates off. Remove those ignores when the server moves to 3.11+.
+  **Moving the server to 3.11: `.github/workflows/server-python.yml`** (manual; modes `inspect`,
+  `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
+  `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
+  `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
+  `/health` fails. The systemd unit and deploy job keep using `.../venv`. `rollback` points the
+  symlink back at `venv-py310`. It shares the `deploy-production` concurrency group with the deploy.
+  The server disk is small (1.5 GB free on 2026-11-20), so `upgrade` clears the pip and apt
+  caches, installs with `--no-cache-dir`, and refuses to start unless free space is at least the
+  old venv plus 700 MB; `inspect` prints the venv, cache and journal sizes.
 
 Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
 exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/` (`server.url`, with `www/offline.html` as `errorPath`);
