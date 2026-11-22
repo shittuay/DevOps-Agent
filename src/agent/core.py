@@ -251,11 +251,11 @@ def _redact_dict(d: Any) -> Any:
     return out
 
 
-def _stored_change_result(tool_name: str, result: Any) -> Any:
+def _stored_change_result(tool_name: str, result: Any, tool_input: Any = None) -> Any:
     """The copy of a tool result an InfrastructureChange row keeps."""
-    from services.secret_detector import SECRET_DISCLOSING_TOOLS, redact_structure
+    from services.secret_detector import discloses_secret, redact_structure
     if isinstance(result, dict):
-        if tool_name in SECRET_DISCLOSING_TOOLS and result.get('success') is not False:
+        if discloses_secret(tool_name, tool_input) and result.get('success') is not False:
             result = {k: result[k] for k in ('success', 'message', '_verification') if k in result}
         else:
             result = {k: v for k, v in result.items() if k != 'download_file'}
@@ -1135,7 +1135,7 @@ class DevOpsAgent:
                 executed_at=utcnow(),
                 # Shown on /changes and kept indefinitely: a create can return
                 # a private key or secret access key, so store it redacted.
-                execution_result=_stored_change_result(tool_name, result),
+                execution_result=_stored_change_result(tool_name, result, tool_input),
             )
             db.session.add(change)
 

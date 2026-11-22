@@ -7,7 +7,7 @@ accidentally exposed credentials and redacts them before display.
 
 import re
 import logging
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +152,56 @@ SECRET_DISCLOSING_TOOLS = frozenset({
     'generate_s3_presigned_url', 'list_storage_account_keys', 'regenerate_storage_key',
     'terraform_state_pull', 'terraform_output', 'terraform_state_show',
 })
+
+# Calls the generic read escape hatches can make that return a live secret or
+# credential. The dedicated tools for these (get_secret_value,
+# list_storage_account_keys...) are high risk; without this list the same
+# value was one low-risk *_api_read call away, with no confirmation.
+_AWS_SECRET_READS = {
+    'secretsmanager': {'get_secret_value', 'batch_get_secret_value'},
+    'ssm': {'get_parameter', 'get_parameters', 'get_parameters_by_path', 'get_parameter_history'},
+    'sts': {'get_session_token', 'get_federation_token'},
+    'sso': {'get_role_credentials'},
+    'cognito-identity': {'get_credentials_for_identity', 'get_open_id_token',
+                         'get_open_id_token_for_developer_identity'},
+    'ecr': {'get_authorization_token'},
+    'ecr-public': {'get_authorization_token'},
+    'codeartifact': {'get_authorization_token'},
+    'lightsail': {'get_instance_access_details', 'get_relational_database_master_user_password'},
+    'ec2': {'get_password_data'},
+    'redshift': {'get_cluster_credentials', 'get_cluster_credentials_with_iam'},
+    'redshift-serverless': {'get_credentials'},
+}
+_AZURE_SECRET_MARKERS = ('key', 'credential', 'sas', 'connection_string', 'secret', 'password')
+
+
+def escape_hatch_secret_read(tool_name: str, tool_input: Optional[Dict] = None) -> Optional[str]:
+    """Name the secret a generic *_api_read call would return, or None.
+
+    GCP is not listed: Secret Manager's payload comes from ``access``, which
+    gcp_api_read refuses as a non-read method, so it already needs approval.
+    """
+    params = tool_input if isinstance(tool_input, dict) else {}
+    if tool_name == 'aws_api_read':
+        service = str(params.get('service') or '').strip().lower()
+        operation = str(params.get('operation') or '').strip().lower()
+        if operation in _AWS_SECRET_READS.get(service, ()):
+            return f'{service} {operation}'
+    elif tool_name == 'azure_api_read':
+        path = str(params.get('operation_path') or '').strip().lower()
+        leaf = path.split('.')[-1]
+        if any(m in leaf for m in _AZURE_SECRET_MARKERS):
+            return path
+    elif tool_name == 'k8s_api_read':
+        method = str(params.get('method') or '').strip().lower()
+        if 'secret' in method:
+            return method
+    return None
+
+
+def discloses_secret(tool_name: str, tool_input: Optional[Dict] = None) -> bool:
+    """True when this call's result is a live secret (see SECRET_DISCLOSING_TOOLS)."""
+    return tool_name in SECRET_DISCLOSING_TOOLS or escape_hatch_secret_read(tool_name, tool_input) is not None
 
 # Field names (lowercased, separators removed) whose value is a credential.
 # Matched on the whole name or as a suffix, so "SecretAccessKey" and

@@ -2301,6 +2301,21 @@ were removed (`AI_ENDPOINTS`, `query_bigquery` in `safety.py`). Guard:
 Still open: sandbox mode is ignored on `api/v1` and `/v1/agent`; `POST /api/push/devices` moves a
 known APNs token to any signed-in account; signup says "Email already registered"; an org's only
 owner can demote or remove themselves, leaving no owner.
+2026-11-19 scheduled review: **the generic read escape hatches no longer hand out secrets
+unconfirmed.** `aws_api_read('secretsmanager','get_secret_value')`, `ssm get_parameter(s)` (SecureString
+plaintext), STS/SSO/ECR/Redshift credential calls, `azure_api_read` on a `*key*`/`*credential*`/`*sas*`
+operation (`storage_accounts.list_keys`, AKS admin kubeconfig) and `k8s_api_read` on a `*secret*` method
+all ran as low risk, while the dedicated tools for the same values are high risk.
+`secret_detector.escape_hatch_secret_read()` names those calls; `safety.validate_tool_call` makes them
+high risk, and `discloses_secret()` (used by `approval_service.stored_result` and
+`core._stored_change_result`, which now take `tool_input`) keeps their approved result as a one-time
+download, never stored. GCP needs nothing: Secret Manager's `access` is not a read method, so
+`gcp_api_read` already refuses it. Add an operation to `_AWS_SECRET_READS` when a new credential-returning
+read turns up. Guard: `tests/test_api_read_secret_gate.py`.
+
+Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
+`api/v1` and `/v1/agent`. Checked 2026-11-19 and no longer open: the map's `esc()` escapes quotes,
+`query_bigquery` is classified (11-14), MCP PKCE (11-12), Settings > Learning XSS (11-11).
 2026-11-16 scheduled review: **the read escape hatches refuse secret-returning calls.**
 `aws_api_read` / `azure_api_read` / `k8s_api_read` run with no confirmation, and they would
 return Secrets Manager values, decrypted SSM parameters, STS/ECR/Redshift credentials, Windows

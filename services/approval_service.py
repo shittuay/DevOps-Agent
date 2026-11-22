@@ -466,14 +466,15 @@ def _result_message(req, decided_by, result, self_confirmed: bool) -> str:
 DOWNLOAD_TTL_MINUTES = 60
 
 
-def stored_result(tool_name: str, result, approval_id) -> tuple:
+def stored_result(tool_name: str, result, approval_id, tool_input=None) -> tuple:
     """Split a tool result into (copy safe to store and show, one-time download or None).
 
     A key pair's file, or the whole result of a tool whose job is to return a
     secret, goes into the download; what is stored says where to get it.
     """
-    from services.secret_detector import SECRET_DISCLOSING_TOOLS, redact_structure
+    from services.secret_detector import discloses_secret, redact_structure
 
+    secret = discloses_secret(tool_name, tool_input)
     if not isinstance(result, dict):
         return redact_structure(result), None
     if result.get('success') is False:
@@ -486,7 +487,7 @@ def stored_result(tool_name: str, result, approval_id) -> tuple:
             'content': file['content'],
             'content_type': file.get('content_type') or 'application/octet-stream',
         }
-    elif tool_name in SECRET_DISCLOSING_TOOLS:
+    elif secret:
         download = {
             'filename': f'{tool_name}-{approval_id}.json',
             'content': json.dumps(result, indent=2, default=str),
@@ -495,7 +496,7 @@ def stored_result(tool_name: str, result, approval_id) -> tuple:
     else:
         return redact_structure(result), None
 
-    if tool_name in SECRET_DISCLOSING_TOOLS:
+    if secret:
         safe = {k: result[k] for k in ('success', 'message', 'warning', '_verification') if k in result}
         safe = redact_structure(safe)
     else:
@@ -601,7 +602,7 @@ def _finish_run(req, decided_by, self_confirmed: bool, return_raw: bool = False)
         logger.error(f"Tool execution failed for approval {req.id}: {e}", exc_info=True)
         raw = {'success': False, 'error': str(e)}
 
-    result, download = stored_result(req.tool_name, raw, req.id)
+    result, download = stored_result(req.tool_name, raw, req.id, req.tool_input)
     req.download_payload = _encrypt_download(download) if download else None
     if download and not req.download_payload:
         result['note'] = ("The values this call returned could not be kept for download. "
