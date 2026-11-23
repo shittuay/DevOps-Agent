@@ -2299,8 +2299,22 @@ were removed (`AI_ENDPOINTS`, `query_bigquery` in `safety.py`). Guard:
 `tests/test_review_2026_11_18.py`.
 
 Still open: sandbox mode is ignored on `api/v1` and `/v1/agent`; `POST /api/push/devices` moves a
-known APNs token to any signed-in account; signup says "Email already registered"; an org's only
-owner can demote or remove themselves, leaving no owner.
+known APNs token to any signed-in account; signup says "Email already registered". (Fixed
+2026-11-23: an org's only owner can no longer demote or remove themselves —
+`MultiTenancyService.is_last_owner()`, checked in the routes and the service; guard
+`tests/test_org_last_owner.py`.)
+
+2026-11-23 scheduled review, **flagged, not changed:** the secret-read guard on the
+`*_api_read` hatches exists three times (11-16, 11-18, 11-19 reviews merged in parallel).
+`aws_api_read` runs two refusal checks back to back (`_aws_read_discloses_secret`, then
+`_secret_read_refusal`), `azure_api_read` two (`_azure_read_discloses_secret`, then
+`_is_azure_secret_read`), and `k8s_api_read` refuses Secret methods and then still redacts
+them (`_without_secret_data`, now unreachable). Worse, the two designs conflict:
+`safety.py` (via `secret_detector.escape_hatch_secret_read`) makes these calls high risk so
+the user confirms them and gets a one-time download, but the handler then refuses, so the
+user approves and gets a refusal. Pick one: refuse in the handler (then drop the safety.py
+branch) or confirm-and-download (then drop the handler refusals). Also `ssm get_parameter`
+without `WithDecryption` is classed high risk though the handler allows it.
 2026-11-19 scheduled review: **the generic read escape hatches no longer hand out secrets
 unconfirmed.** `aws_api_read('secretsmanager','get_secret_value')`, `ssm get_parameter(s)` (SecureString
 plaintext), STS/SSO/ECR/Redshift credential calls, `azure_api_read` on a `*key*`/`*credential*`/`*sas*`

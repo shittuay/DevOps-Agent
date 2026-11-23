@@ -227,10 +227,23 @@ class MultiTenancyService:
         logger.info(f"Added user {user_id} to org {org_id} as {role}")
         return member
 
+    def is_last_owner(self, org_id: int, user_id: int) -> bool:
+        """True when user_id is the organization's only active owner."""
+        member = self.get_membership(org_id, user_id)
+        if not member or member.role != 'owner':
+            return False
+        OrganizationMember = self._get_member_model()
+        owners = OrganizationMember.query.filter_by(
+            organization_id=org_id, role='owner', is_active=True
+        ).count()
+        return owners <= 1
+
     def update_member_role(self, org_id: int, user_id: int, new_role: str) -> Optional[Any]:
-        """Update a member's role."""
+        """Update a member's role. Never demotes the only owner."""
         db = self._get_db()
         member = self.get_membership(org_id, user_id)
+        if member and new_role != 'owner' and self.is_last_owner(org_id, user_id):
+            return None
         if member:
             member.role = new_role
             db.session.commit()
@@ -238,9 +251,11 @@ class MultiTenancyService:
         return None
 
     def remove_member(self, org_id: int, user_id: int) -> bool:
-        """Remove a member from an organization."""
+        """Remove a member from an organization. Never removes the only owner."""
         db = self._get_db()
         member = self.get_membership(org_id, user_id)
+        if member and self.is_last_owner(org_id, user_id):
+            return False
         if member:
             member.is_active = False
             db.session.commit()
