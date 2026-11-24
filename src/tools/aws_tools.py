@@ -13232,16 +13232,6 @@ _AWS_SECRET_READ_MARKERS = (
 )
 
 
-def _aws_read_discloses_secret(op_lower: str, params: Optional[Dict[str, Any]]) -> bool:
-    if any(m in op_lower for m in _AWS_SECRET_READ_MARKERS):
-        return True
-    # ssm get_parameter(s)(_by_path) / get_parameter_history decrypt SecureStrings on request.
-    return op_lower.startswith('get_parameter') and bool((params or {}).get('WithDecryption'))
-
-
-SECRET_READ_REFUSAL = ('"{op}" returns secret values (passwords, keys or tokens). DevOps Agent '
-                       'does not read secrets through the generic read tool; read the value in '
-                       'your provider\'s console instead. Names and metadata can still be listed.')
 # Read-shaped operations that return secret values or mint credentials. The read
 # escape hatch runs without confirmation, so these would put a live secret into the
 # chat, the tool trace and the model provider's logs with nobody asked. They are
@@ -13284,14 +13274,23 @@ _SECRET_READ_FLAGS = {
 
 
 def _secret_read_refusal(service: str, op_lower: str, params: Dict[str, Any]) -> Optional[str]:
-    """Return a refusal message when an aws_api_read call would disclose a secret."""
+    """Return a refusal message when an aws_api_read call would disclose a secret.
+
+    The one check for aws_api_read: the exact table, the per-parameter flags, and the
+    name markers that catch credential-returning operations the table doesn't list.
+    """
     svc = (service or '').strip().lower()
+    op_lower = (op_lower or '').strip().lower()
+    params = params or {}
     key = (svc, op_lower)
-    if key in _SECRET_READ_OPERATIONS:
+    if key in _SECRET_READ_OPERATIONS or any(m in op_lower for m in _AWS_SECRET_READ_MARKERS):
         return (f'{svc}.{op_lower} returns a secret value or credentials, so it is not '
                 'available through aws_api_read. Ask the user to read it in the AWS '
                 'console; do not try another tool to fetch it.')
     flag = _SECRET_READ_FLAGS.get(key)
+    if flag is None and op_lower.startswith('get_parameter'):
+        # Whatever the service string says, WithDecryption asks for SecureString plaintext.
+        flag = ('WithDecryption', True)
     if flag:
         name, disclosing_value = flag
         value = bool(params.get(name, False))
@@ -13325,8 +13324,6 @@ def aws_api_read(
             'error': f'"{operation}" does not look like a read-only operation. '
                      'Use aws_api_write for create/update/delete/put operations.'
         }
-    if _aws_read_discloses_secret(op_lower, params):
-        return {'success': False, 'error': SECRET_READ_REFUSAL.format(op=operation)}
     refusal = _secret_read_refusal(service, op_lower, params or {})
     if refusal:
         return {'success': False, 'error': refusal, 'error_code': 'SecretDisclosureRefused'}

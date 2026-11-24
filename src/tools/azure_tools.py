@@ -1610,11 +1610,6 @@ def _is_azure_read(operation: str) -> bool:
 # list_storage_account_keys is high risk for exactly this reason; azure_api_read is not.
 _AZURE_SECRET_READ_MARKERS = ('keys', 'credential', 'secret', 'connection_string',
                               'publishing', 'application_settings', 'sas')
-
-
-def _azure_read_discloses_secret(operation: str) -> bool:
-    op = operation.lower().split('.')[-1]
-    return any(m in op for m in _AZURE_SECRET_READ_MARKERS)
 # Final method-name words that mean the call returns keys, credentials or
 # connection strings (storage_accounts.list_keys, managed_clusters
 # .list_cluster_admin_credentials, web_apps.list_application_settings, ...).
@@ -1629,7 +1624,7 @@ def _is_azure_secret_read(operation: str) -> bool:
     op = operation.lower().split('.')[-1]
     if op.startswith('begin_'):
         op = op[len('begin_'):]
-    if any(phrase in op for phrase in _AZURE_SECRET_PHRASES):
+    if any(m in op for m in _AZURE_SECRET_READ_MARKERS + _AZURE_SECRET_PHRASES):
         return True
     return any(word in _AZURE_SECRET_WORDS for word in op.split('_')[1:])
 
@@ -1674,9 +1669,6 @@ def azure_api_read(
     """
     if not _is_azure_read(operation_path):
         return {'success': False, 'error': f'"{operation_path}" does not look like a read operation. Use azure_api_write for create/update/delete.'}
-    if _azure_read_discloses_secret(operation_path):
-        from src.tools.aws_tools import SECRET_READ_REFUSAL
-        return {'success': False, 'error': SECRET_READ_REFUSAL.format(op=operation_path)}
     if _is_azure_secret_read(operation_path):
         return {'success': False, 'error_code': 'SecretDisclosureRefused',
                 'error': f'{client_type}.{operation_path} returns keys, credentials or connection '
