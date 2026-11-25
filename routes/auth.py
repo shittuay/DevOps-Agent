@@ -267,6 +267,8 @@ def login():
 
             # Same text as an unknown account: an attempts-remaining count would tell
             # anyone with one guess that the account exists.
+            # Same message as an unknown account: an attempts-remaining count (shown only
+            # when the account exists) told anyone which emails are registered.
             return render_template(_LOGIN_TEMPLATE, error='Invalid email/username or password')
 
     return render_template(_LOGIN_TEMPLATE)

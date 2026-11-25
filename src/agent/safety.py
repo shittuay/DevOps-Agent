@@ -519,7 +519,7 @@ class SafetyValidator:
             'create_eventbridge_rule',
             'resize_gke_cluster',
             'create_pubsub_subscription',
-            'query_bigquery',
+            'query_bigquery',  # arbitrary SQL, incl. DML/DDL
             # Git medium risk
             'git_clone_repository',
             'git_add_remote',
@@ -770,7 +770,6 @@ class SafetyValidator:
             # point a topic at a new external endpoint) was already medium-risk; this sibling
             # publish path was missed until the 2026-09-02 scheduled audit.
             'publish_pubsub_message',
-            'query_bigquery',  # arbitrary SQL, incl. DML/DDL
             # Same shape again, missed by the same sweeps that caught the SNS/Pub-Sub
             # siblings above: send_sqs_message accepts a fully caller-controlled
             # queue_url + message_body with no confirmation. SQS queues commonly
@@ -809,6 +808,20 @@ class SafetyValidator:
         # Check for specific dangerous patterns in input (escalate to critical on production)
         input_str = str(tool_input).lower()
         targets_production = 'production' in input_str or 'prod' in input_str
+
+        # Special case: a generic *_api_read call that returns a secret is
+        # as risky as the dedicated tool for it (get_secret_value etc.).
+        if tool_name in ('aws_api_read', 'azure_api_read', 'k8s_api_read'):
+            from services.secret_detector import escape_hatch_secret_read
+            secret_call = escape_hatch_secret_read(tool_name, tool_input)
+            if secret_call:
+                return ValidationResult(
+                    is_safe=True,
+                    reason=f"High-risk operation: {secret_call} returns a secret value"
+                           + (" on production" if targets_production else ""),
+                    requires_confirmation=True,
+                    risk_level='critical' if targets_production else 'high'
+                )
 
         # Special case: manage_ec2_instance is action-aware
         if tool_name == 'manage_ec2_instance':

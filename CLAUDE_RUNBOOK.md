@@ -8,6 +8,7 @@ This document archives fixed issues and their solutions for reference. Most issu
 
 | Issue | Solution |
 |-------|----------|
+| 2026-11-18 (daily review): the provider escape hatches `aws_api_read`, `azure_api_read` and `k8s_api_read` are low risk (no confirmation) and accepted any read-prefixed operation, so `aws_api_read('secretsmanager','get_secret_value')`, `ssm get_parameter` with `WithDecryption`, `ec2 get_password_data`, `ecr get_authorization_token`, `sts get_session_token`, `azure_api_read('storage','storage_accounts.list_keys')` and `k8s_api_read('core','read_namespaced_secret')` put live secrets into the chat, tool trace and model provider with no prompt, while the dedicated tools for the same data are high risk. Also: the login page said "N attempts remaining" only for real accounts, and three parallel reviews had each added the same `AI_ENDPOINTS` / `query_bigquery` line. | AWS and Azure reads refuse those operations by name (`_aws_read_discloses_secret`, `_azure_read_discloses_secret`); Kubernetes Secret reads come back with values `[REDACTED]` (names and key names kept, plus the `last-applied-configuration` annotation, which holds the values too). Failed logins all say "Invalid email/username or password". Duplicates removed. GCP's hatch already excludes Secret Manager's `access`. Guard: `tests/test_review_2026_11_18.py`. |
 | 2026-11-12 (daily review): MCP OAuth issued an auth code with no `code_challenge`, and `/mcp/oauth/token` checked the verifier only when a challenge was stored. A code obtained without PKCE (for example by a local app listening on a registered loopback redirect) could be exchanged by anyone holding it with any non-empty `code_verifier`; the built-in client's secret is published, so it was no protection either. `/token` also ignored a mismatched `redirect_uri`. | `/authorize` returns 400 unless `code_challenge_method=S256` and the challenge is 43 base64url chars, for every client; `/token` refuses a code stored without a challenge and a `redirect_uri` that differs from the stored one (`routes/mcp.py`). Claude.ai, Desktop and Code always send S256, so the connector flow is unchanged. Guard: `tests/test_mcp_oauth_pkce_required.py`. |
 | 2026-11-02 (iPhone app, first run): the 2FA code page ran off the right edge of the screen, cutting off the title, the "Signing in as" line and the code box. On iOS (WebKit) the centred `.container` (a flex item of `body`) took the code box's intrinsic width, which is wide because of the monospace font and letter spacing; Chromium at the same width fits, so desktop checks never showed it. | `min-width: 0` on `.container` and on `input`, plus `overflow-wrap: anywhere` on the heading and subtitle under 480px (`templates/verify_2fa.html`). Guard: `tests/test_2fa_page_phone_width.py`. Not reproduced in a WebKit engine here (only Chromium is installed); confirm on the simulator. |
 | 2026-10-22 (review): the guardrail deny and the self-grant sensitivity list both missed `secretsmanager:BatchGetSecretValue`, `ec2:GetPasswordData` and the Redshift credential calls; at Manage, `aws_api_read('secretsmanager', 'batch_get_secret_value')` returned plaintext secrets with no approval. PR #265 tried to fix part of this by making the template deny equal the whole sensitivity list, which also denied `s3:GetObject`/`lambda:GetFunction` on Manage; it was closed. | `aws_permissions.CREDENTIAL_VALUE_ACTIONS` is the single list; `build_cf_template.py` imports it for `NeverSecretValues` (every level); `SENSITIVE_ACTIONS` adds the data reads for self-grant only. Guard: `test_credential_reads_are_denied_on_every_level_but_manage_keeps_data_reads`. **Re-upload `cloudformation/devops-agent-role.json` to S3 after merging.** |
@@ -4289,3 +4290,18 @@ accessibility fixes) were not live until the pins went back. Fix: pins reverted 
   so a retired model id during a rate-limit failed instead of falling back; the old guard only
   counted call sites.
 - Guard: `tests/test_review_2026_11_21.py`.
+## 2026-11-16 scheduled review: read escape hatches disclosed secrets without confirmation
+
+- **Symptom (latent, found by review):** `aws_api_read`, `azure_api_read` and `k8s_api_read` are
+  low risk (no confirmation) and only checked that the method name looked like a read.
+  `get_secret_value`, `get_parameter` with `WithDecryption`, `sts.get_session_token`,
+  `ecr.get_authorization_token`, `ec2.get_password_data`, Azure `list_keys` /
+  `list_cluster_admin_credentials` / `list_application_settings`, and Kubernetes
+  `read_namespaced_secret` all passed. The dedicated tools for the same data
+  (`list_storage_account_keys`, `get_secret_value`, ...) are high risk for exactly this reason.
+- **Fix:** each hatch refuses those calls before building a client, with
+  `error_code: SecretDisclosureRefused`. The write hatches already reject read-shaped names, so
+  the refusal can't be routed round. `secret_detector` redaction was not enough on its own: it
+  only matches known secret formats, and a database password or app setting has none.
+- Guard: `tests/test_api_read_secret_refusal.py`. Running tests was not permitted in the
+  routine's sandbox, so CI is its first run.
