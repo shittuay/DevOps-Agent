@@ -2289,7 +2289,7 @@ posting the user id. TOTP setup no longer sets `email_verified` (a 2FA user stil
 refuses credential-returning operations (`_aws_read_discloses_secret`: secret values, instance
 passwords, ECR/STS tokens, `*credentials*`, SSM with `WithDecryption`), `azure_api_read` refuses
 `list_keys` / `list_*credentials` / publishing / app settings / connection strings / SAS
-(`_azure_read_discloses_secret`), and `k8s_api_read` replaces Secret `data`/`string_data` values
+(merged into `_is_azure_secret_read` on 2026-11-25), and `k8s_api_read` replaces Secret `data`/`string_data` values
 and the last-applied annotation with `[REDACTED]` (`_without_secret_data`). They are low risk with
 no confirmation, so they had bypassed the high-risk gate on `list_storage_account_keys` and the
 deliberate absence of an AWS secret-value tool. A failed login now shows the same message for a
@@ -2312,6 +2312,18 @@ high risk, and `discloses_secret()` (used by `approval_service.stored_result` an
 download, never stored. GCP needs nothing: Secret Manager's `access` is not a read method, so
 `gcp_api_read` already refuses it. Add an operation to `_AWS_SECRET_READS` when a new credential-returning
 read turns up. Guard: `tests/test_api_read_secret_gate.py`.
+
+2026-11-25 scheduled review: the 11-16, 11-18 and 11-19 fixes above were written in parallel
+and merged together on 11-22, which left **two refusal checks per tool** and turned main's CI
+red (the 11-18 AWS check ran first and returned no `error_code`, which the 11-16 tests require).
+Now each hatch has one refusal path, always `error_code: SecretDisclosureRefused`: AWS
+`_secret_read_refusal()` (parameter flags first, then the explicit list, then
+`_aws_read_discloses_secret`'s name markers), Azure `_is_azure_secret_read()`, Kubernetes
+`_is_k8s_secret_read()`. The safety gate (`escape_hatch_secret_read`) now flags SSM parameter
+reads only with `WithDecryption`, as the tool does: a plain `get_parameter` on
+`/aws/service/ami-*` (AMI lookup) had needed approval and had its result hidden as a download.
+The gate still fires for calls the tools refuse anyway (the user approves, then gets a
+refusal); pick one policy (refuse, or gate and allow) in a reviewed change.
 
 Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
 `api/v1` and `/v1/agent`. Checked 2026-11-19 and no longer open: the map's `esc()` escapes quotes,

@@ -13239,9 +13239,6 @@ def _aws_read_discloses_secret(op_lower: str, params: Optional[Dict[str, Any]]) 
     return op_lower.startswith('get_parameter') and bool((params or {}).get('WithDecryption'))
 
 
-SECRET_READ_REFUSAL = ('"{op}" returns secret values (passwords, keys or tokens). DevOps Agent '
-                       'does not read secrets through the generic read tool; read the value in '
-                       'your provider\'s console instead. Names and metadata can still be listed.')
 # Read-shaped operations that return secret values or mint credentials. The read
 # escape hatch runs without confirmation, so these would put a live secret into the
 # chat, the tool trace and the model provider's logs with nobody asked. They are
@@ -13287,10 +13284,6 @@ def _secret_read_refusal(service: str, op_lower: str, params: Dict[str, Any]) ->
     """Return a refusal message when an aws_api_read call would disclose a secret."""
     svc = (service or '').strip().lower()
     key = (svc, op_lower)
-    if key in _SECRET_READ_OPERATIONS:
-        return (f'{svc}.{op_lower} returns a secret value or credentials, so it is not '
-                'available through aws_api_read. Ask the user to read it in the AWS '
-                'console; do not try another tool to fetch it.')
     flag = _SECRET_READ_FLAGS.get(key)
     if flag:
         name, disclosing_value = flag
@@ -13301,6 +13294,11 @@ def _secret_read_refusal(service: str, op_lower: str, params: Dict[str, Any]) ->
                         f'Call it without {name} to read metadata only.')
             return (f'{svc}.{op_lower} returns stored passwords unless {name}=true. '
                     f'Call it again with {name}=true.')
+    # The explicit list, plus name markers as a backstop for operations not listed.
+    if key in _SECRET_READ_OPERATIONS or _aws_read_discloses_secret(op_lower, params):
+        return (f'{svc}.{op_lower} returns a secret value or credentials, so it is not '
+                'available through aws_api_read. Ask the user to read it in the AWS '
+                'console; do not try another tool to fetch it.')
     return None
 
 
@@ -13325,8 +13323,6 @@ def aws_api_read(
             'error': f'"{operation}" does not look like a read-only operation. '
                      'Use aws_api_write for create/update/delete/put operations.'
         }
-    if _aws_read_discloses_secret(op_lower, params):
-        return {'success': False, 'error': SECRET_READ_REFUSAL.format(op=operation)}
     refusal = _secret_read_refusal(service, op_lower, params or {})
     if refusal:
         return {'success': False, 'error': refusal, 'error_code': 'SecretDisclosureRefused'}

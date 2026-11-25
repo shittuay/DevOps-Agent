@@ -57,7 +57,7 @@ def test_azure_api_read_refuses_secret_reads(op):
 def test_azure_api_read_allows_plain_reads():
     for op in ('virtual_machines.list_all', 'storage_accounts.get_properties',
                'ssh_public_keys.list'):
-        assert not azure_tools._azure_read_discloses_secret(op)
+        assert not azure_tools._is_azure_secret_read(op)
 
 
 def test_k8s_secret_values_are_stripped():

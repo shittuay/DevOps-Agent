@@ -159,7 +159,6 @@ SECRET_DISCLOSING_TOOLS = frozenset({
 # value was one low-risk *_api_read call away, with no confirmation.
 _AWS_SECRET_READS = {
     'secretsmanager': {'get_secret_value', 'batch_get_secret_value'},
-    'ssm': {'get_parameter', 'get_parameters', 'get_parameters_by_path', 'get_parameter_history'},
     'sts': {'get_session_token', 'get_federation_token'},
     'sso': {'get_role_credentials'},
     'cognito-identity': {'get_credentials_for_identity', 'get_open_id_token',
@@ -187,6 +186,12 @@ def escape_hatch_secret_read(tool_name: str, tool_input: Optional[Dict] = None) 
         operation = str(params.get('operation') or '').strip().lower()
         if operation in _AWS_SECRET_READS.get(service, ()):
             return f'{service} {operation}'
+        # SSM parameter reads return plaintext only for SecureStrings with
+        # WithDecryption; without it they are metadata (and the public
+        # /aws/service/ami-* paths the agent uses to resolve AMIs).
+        call_params = params.get('params') if isinstance(params.get('params'), dict) else {}
+        if service == 'ssm' and operation.startswith('get_parameter') and call_params.get('WithDecryption'):
+            return f'{service} {operation} (WithDecryption)'
     elif tool_name == 'azure_api_read':
         path = str(params.get('operation_path') or '').strip().lower()
         leaf = path.split('.')[-1]
