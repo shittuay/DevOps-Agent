@@ -19,7 +19,8 @@ SECRET_CALLS = [
                       'params': {'SecretId': 'db'}}),
     ('aws_api_read', {'service': 'SSM', 'operation': 'get_parameter',
                       'params': {'Name': '/app/db', 'WithDecryption': True}}),
-    ('aws_api_read', {'service': 'ssm', 'operation': 'get_parameters_by_path', 'params': {'Path': '/'}}),
+    ('aws_api_read', {'service': 'ssm', 'operation': 'get_parameters_by_path',
+                      'params': {'Path': '/', 'WithDecryption': True}}),
     ('aws_api_read', {'service': 'sts', 'operation': 'get_session_token'}),
     ('aws_api_read', {'service': 'ecr', 'operation': 'get_authorization_token'}),
     ('aws_api_read', {'service': 'ec2', 'operation': 'get_password_data', 'params': {'InstanceId': 'i-1'}}),
@@ -35,6 +36,10 @@ PLAIN_READS = [
     ('aws_api_read', {'service': 'ec2', 'operation': 'describe_instances'}),
     ('aws_api_read', {'service': 'secretsmanager', 'operation': 'list_secrets'}),
     ('aws_api_read', {'service': 'ssm', 'operation': 'describe_parameters'}),
+    # Without WithDecryption this is metadata; the agent resolves AMIs this way.
+    # It was gated (and its result hidden as a download) from 2026-11-19 to 11-25.
+    ('aws_api_read', {'service': 'ssm', 'operation': 'get_parameter',
+                      'params': {'Name': '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'}}),
     ('azure_api_read', {'client_type': 'compute', 'operation_path': 'virtual_machines.list_all'}),
     ('k8s_api_read', {'api_group': 'core', 'method': 'list_namespaced_pod', 'params': {'namespace': 'x'}}),
     ('aws_api_read', None),

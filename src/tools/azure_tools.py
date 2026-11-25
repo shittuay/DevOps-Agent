@@ -1610,6 +1610,7 @@ def _is_azure_read(operation: str) -> bool:
 # list_storage_account_keys is high risk for exactly this reason; azure_api_read is not.
 _AZURE_SECRET_READ_MARKERS = ('keys', 'credential', 'secret', 'connection_string',
                               'publishing', 'application_settings', 'sas')
+
 # Final method-name words that mean the call returns keys, credentials or
 # connection strings (storage_accounts.list_keys, managed_clusters
 # .list_cluster_admin_credentials, web_apps.list_application_settings, ...).
