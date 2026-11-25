@@ -13,6 +13,76 @@ logger = logging.getLogger(__name__)
 _RISK_RANK = {'low': 0, 'medium': 1, 'high': 2, 'critical': 3}
 
 
+# AWS read operations (service, operation without underscores) that return a live
+# secret or credential. Matched by aws_api_read's own normalisation (lowercase).
+_AWS_SECRET_READS = frozenset({
+    ('secretsmanager', 'getsecretvalue'), ('secretsmanager', 'batchgetsecretvalue'),
+    ('ecr', 'getauthorizationtoken'), ('ecr-public', 'getauthorizationtoken'),
+    ('codeartifact', 'getauthorizationtoken'),
+    ('sts', 'getsessiontoken'), ('sts', 'getfederationtoken'),
+    ('sso', 'getrolecredentials'),
+    ('cognito-identity', 'getcredentialsforidentity'),
+    ('redshift', 'getclustercredentials'), ('redshift', 'getclustercredentialswithiam'),
+    ('redshift-serverless', 'getcredentials'),
+    ('lambda', 'getfunction'),  # presigned code-download URL + environment
+    ('glue', 'getconnection'), ('glue', 'getconnections'),  # passwords unless HidePassword
+    ('lightsail', 'getinstanceaccessdetails'),
+    ('lightsail', 'getrelationaldatabasemasteruserpassword'),
+    ('appsync', 'listapikeys'),
+})
+# SSM parameter reads return plaintext SecureStrings only when decryption is asked for.
+_AWS_SSM_DECRYPTING_READS = frozenset({
+    'getparameter', 'getparameters', 'getparametersbypath', 'getparameterhistory',
+})
+# API Gateway key reads include the key value only when asked to.
+_AWS_APIGW_VALUE_READS = {'getapikey': 'includeValue', 'getapikeys': 'includeValues'}
+# Words in an Azure SDK operation name that mark a credential read
+# (storage_accounts.list_keys, registries.list_credentials, web_apps.list_publishing_credentials...).
+_AZURE_SECRET_WORDS = frozenset({'key', 'keys', 'credentials', 'secret', 'secrets', 'sas',
+                                 'publishing', 'connection'})
+
+
+def generic_read_secret_operation(tool_name: str, tool_input: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Name the operation if a generic *_api_read call would return secret values, else None.
+
+    The read escape hatches are low risk by default, which let them reach the same
+    secrets the dedicated tools (get_secret_value, list_storage_account_keys) gate as
+    high risk.
+    """
+    if not tool_name.endswith('_api_read'):
+        return None
+    args = tool_input or {}
+    params = args.get('params') if isinstance(args.get('params'), dict) else {}
+
+    if tool_name == 'aws_api_read':
+        service = str(args.get('service') or '').strip().lower()
+        op = str(args.get('operation') or '').strip().lower().replace('_', '')
+        label = f"{service}.{args.get('operation')}"
+        if (service, op) in _AWS_SECRET_READS:
+            return label
+        if service == 'ssm' and op in _AWS_SSM_DECRYPTING_READS and params.get('WithDecryption'):
+            return label
+        if service == 'apigateway' and op in _AWS_APIGW_VALUE_READS \
+                and params.get(_AWS_APIGW_VALUE_READS[op]):
+            return label
+        return None
+
+    if tool_name == 'azure_api_read':
+        path = str(args.get('operation_path') or '')
+        words = set(re.split(r'[^a-z]+', path.lower().split('.')[-1]))
+        if (words & _AZURE_SECRET_WORDS) or {'application', 'settings'} <= words:
+            return path
+        return None
+
+    if tool_name == 'k8s_api_read':
+        method = str(args.get('method') or '')
+        if 'secret' in method.lower():
+            return method
+        return None
+
+    return None
+
+
 @dataclass
 class ValidationResult:
     """Result of a safety validation check."""
@@ -795,6 +865,18 @@ class SafetyValidator:
                     risk_level='medium'
                 )
             # action='start' falls through to low risk
+
+        # Special case: the generic read escape hatches are low risk, but some
+        # "read" operations return live secrets (the same disclosure class as
+        # get_secret_value / list_storage_account_keys, which are high risk).
+        secret_read = generic_read_secret_operation(tool_name, tool_input)
+        if secret_read:
+            return ValidationResult(
+                is_safe=True,
+                reason=f"High-risk read: {secret_read} returns secret values",
+                requires_confirmation=True,
+                risk_level='critical' if targets_production else 'high'
+            )
 
         # ---------------------------------------------------------------
         # Legacy classification. Explicit name-sets are authoritative over

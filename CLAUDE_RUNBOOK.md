@@ -4274,6 +4274,22 @@ accessibility fixes) were not live until the pins went back. Fix: pins reverted 
 - Guard: `tests/test_org_invitations.py`. The old `OrganizationMember.invitation_token` column
   is left in place, unused.
 
+### 2026-11-21 scheduled review: read escape hatches reached secrets without confirmation
+
+- **`*_api_read` secret reads (fixed).** `get_secret_value` and `list_storage_account_keys` are
+  high risk because they put live secrets into the chat and the model provider's context, but
+  `aws_api_read('secretsmanager', 'get_secret_value', ...)`, `azure_api_read('storage',
+  'storage_accounts.list_keys')` and `k8s_api_read('core', 'read_namespaced_secret')` did the same
+  thing at low risk with no prompt. The CloudFormation role's guardrail deny blocks
+  `GetSecretValue` on AWS, but access-key connections, Azure and Kubernetes had no such backstop.
+  `validate_tool_call` now inspects the hatch's arguments (`generic_read_secret_operation`).
+- **Login enumeration (fixed).** One wrong password on a real account said "4 attempts
+  remaining", and any password on an SSO-enforced account said "use SSO"; an unknown address
+  said neither.
+- **Kimi retry (fixed).** The non-streaming rate-limit retry skipped `kimi_create_with_fallback`,
+  so a retired model id during a rate-limit failed instead of falling back; the old guard only
+  counted call sites.
+- Guard: `tests/test_review_2026_11_21.py`.
 ## 2026-11-16 scheduled review: read escape hatches disclosed secrets without confirmation
 
 - **Symptom (latent, found by review):** `aws_api_read`, `azure_api_read` and `k8s_api_read` are

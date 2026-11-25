@@ -2637,7 +2637,7 @@ class DevOpsAgent:
                     if any(k in _retry_str for k in ('429', 'rate_limit', 'timeout', 'RateLimitError', 'APITimeoutError')):
                         self.logger.warning(f"Kimi transient error (retrying once): {_retry_str}")
                         time.sleep(2)
-                        response = client.chat.completions.create(**params)
+                        response = kimi_create_with_fallback(client, params)
                     else:
                         raise
                 model = params['model']

@@ -79,6 +79,8 @@ def test_no_loop_when_fallback_itself_is_refused():
 def test_every_kimi_call_site_uses_the_fallback():
     core = (ROOT / 'src' / 'agent' / 'core.py').read_text()
     assert core.count('kimi_create_with_fallback(client, params)') >= 2
+    # The rate-limit retry once called the client directly, skipping the fallback.
+    assert 'client.chat.completions.create' not in core
     failover = (ROOT / 'services' / 'model_failover.py').read_text()
     kimi = failover[failover.index('class KimiProvider'):failover.index('def chat_with_failover')]
     assert 'client.chat.completions.create' not in kimi
