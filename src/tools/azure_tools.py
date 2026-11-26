@@ -1604,6 +1604,19 @@ def _is_azure_read(operation: str) -> bool:
     return any(op.startswith(p) for p in _AZURE_READ_PREFIXES)
 
 
+# Read-shaped SDK methods that return access keys, SAS tokens or credentials. azure_api_read
+# has no confirmation prompt; list_storage_account_keys (the dedicated tool) is high-risk.
+_AZURE_SECRET_READ_METHODS = frozenset({
+    'list_keys', 'get_keys', 'list_account_sas', 'list_service_sas', 'list_credentials',
+    'list_connection_strings', 'list_publishing_credentials', 'list_secrets', 'get_secret',
+    'list_admin_credentials', 'list_user_credentials', 'list_cluster_admin_credentials',
+    'list_cluster_user_credentials', 'list_cluster_monitoring_user_credentials',
+    'get_access_token',
+})
+
+
+def _is_azure_secret_read(operation: str) -> bool:
+    return operation.lower().split('.')[-1].strip() in _AZURE_SECRET_READ_METHODS
 
 # Final method-name words that mean the call returns keys, credentials or
 # connection strings (storage_accounts.list_keys, managed_clusters
@@ -1665,6 +1678,9 @@ def azure_api_read(
     if not _is_azure_read(operation_path):
         return {'success': False, 'error': f'"{operation_path}" does not look like a read operation. Use azure_api_write for create/update/delete.'}
     if _is_azure_secret_read(operation_path):
+        return {'success': False,
+                'error': f'"{operation_path}" returns keys or credentials, so it is not available here. '
+                         'Secret values are never read into chat; ask the user to view it in the Azure portal.'}
         return {'success': False, 'error_code': 'SecretDisclosureRefused',
                 'error': f'{client_type}.{operation_path} returns keys, credentials or connection '
                          'strings, so it is not available through azure_api_read. Ask the user to '

@@ -2285,6 +2285,19 @@ address matches (GET shows a confirm page). The Members page's Remove/Change rol
 posting the user id. TOTP setup no longer sets `email_verified` (a 2FA user still gets into the app via
 `enforce_email_verification`). Guard: `tests/test_org_invitations.py`.
 
+2026-11-17 scheduled review: **the generic read escape hatches no longer return secret values.**
+They run with no confirmation prompt, yet `aws_api_read('secretsmanager','get_secret_value')`,
+Azure `storage_accounts.list_keys` and `k8s_api_read('core','read_namespaced_secret')` returned the
+same plaintext the dedicated high-risk tools gate. `aws_api_read` refuses `_SECRET_READ_OPERATIONS`
+(secret values, Windows passwords, STS/ECR/Redshift/SSO credentials) and SSM reads with
+`WithDecryption`; `azure_api_read` refuses `_AZURE_SECRET_READ_METHODS` (keys, SAS, credentials);
+`k8s_api_read` replaces every Secret value with `[REDACTED]` (names and keys kept). GCP's secret
+read (`versions.access`) was already not read-shaped. Add to those sets when a new key- or
+credential-returning read appears. Guard: `tests/test_api_read_secret_values.py`.
+
+Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
+`api/v1` and `/v1/agent`; `POST /api/push/devices` moves a known APNs token to any signed-in
+account; the Kimi rate-limit retry in `core.py` bypasses `kimi_create_with_fallback`.
 2026-11-18 scheduled review: **the generic read tools don't return secrets.** `aws_api_read`
 refuses credential-returning operations (`_aws_read_discloses_secret`: secret values, instance
 passwords, ECR/STS tokens, `*credentials*`, SSM with `WithDecryption`), `azure_api_read` refuses

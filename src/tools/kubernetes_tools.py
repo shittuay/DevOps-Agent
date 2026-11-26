@@ -2568,6 +2568,11 @@ def _is_k8s_read(method: str) -> bool:
     return any(method.lower().startswith(p) for p in _K8S_READ_PREFIXES)
 
 
+def _redact_secret_values(result: Any) -> Any:
+    """Keep a Secret's names, keys and metadata; replace every value. k8s_api_read has no
+    confirmation prompt, so a Secret's data must not reach the chat or the model provider."""
+    objs = result.get('items') if isinstance(result, dict) and isinstance(result.get('items'), list) else [result]
+    for obj in objs:
 _LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
 
 
@@ -2582,6 +2587,7 @@ def _without_secret_data(result: Any) -> Any:
         for field in ('data', 'string_data', 'stringData'):
             if isinstance(obj.get(field), dict):
                 obj[field] = {k: '[REDACTED]' for k in obj[field]}
+    return result
         annotations = (obj.get('metadata') or {}).get('annotations')
         if isinstance(annotations, dict) and _LAST_APPLIED in annotations:
             annotations[_LAST_APPLIED] = '[REDACTED]'
@@ -2640,6 +2646,7 @@ def k8s_api_read(
         if hasattr(result, 'to_dict'):
             result = result.to_dict()
         if 'secret' in method.lower():
+            result = _redact_secret_values(result)
             result = _without_secret_data(result)
         return {'success': True, 'api_group': api_group, 'method': method, 'result': result}
     except ApiException as e:
