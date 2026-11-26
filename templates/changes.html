@@ -1008,7 +1008,7 @@
             // to come from the filtered list, so the Pending tab showed "Total changes 0".
             fetchStatCount('', 'statTotal');
             fetchStatCount('pending', 'statPending');
-            fetchStatCount('executed', 'statExecuted');
+            fetchStatCounts(['executed', 'rolled_back'], 'statExecuted');
             fetchStatCounts(['rejected', 'failed'], 'statRejected');
         }
 

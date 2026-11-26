@@ -2313,6 +2313,17 @@ download, never stored. GCP needs nothing: Secret Manager's `access` is not a re
 `gcp_api_read` already refuses it. Add an operation to `_AWS_SECRET_READS` when a new credential-returning
 read turns up. Guard: `tests/test_api_read_secret_gate.py`.
 
+2026-11-26 scheduled review: **a change request runs once and rolls back once.**
+`routes/changes.py`'s execute and rollback checked the status, then acted, so a double click (or
+two reviewers) ran a delete/stop twice, and an executed change could be rolled back repeatedly.
+Both now claim the row with one conditional UPDATE (`_claim`: approved -> `executing` ->
+executed/failed, back to approved on `no_action`; executed -> `rolled_back`, back to executed if
+the rollback raises). A failed rollback no longer echoes `str(e)`. The Executed card counts
+`rolled_back` too. Guard: `tests/test_review_2026_11_26.py`. Noted, not changed: `.env.example`
+now sets `POSTGRES_USER=de`/`POSTGRES_DB=de` while its `DATABASE_URL` still says
+`devops`/`devops_agent`; `tests/test_changes_page_stats.py::test_unfiltered_status_lists_every_change`
+fails when run after `test_change_approvals_unified.py` (DetachedInstanceError, pre-existing).
+
 2026-11-25 scheduled review: the 11-16, 11-18 and 11-19 fixes above were written in parallel
 and merged together on 11-22, which left **two refusal checks per tool** and turned main's CI
 red (the 11-18 AWS check ran first and returned no `error_code`, which the 11-16 tests require).
@@ -2597,20 +2608,9 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   resolves `requirements.txt` on the server's Python and gates `status-check`: **keep its
   `python-version` equal to the server venv**, and check `requires_python` on PyPI before adding
   or bumping a pin.
-- **The production server runs Python 3.10** (inferred: Pillow 12.3 and dnspython 2.8, both
-  `>=3.10`, install; Pillow 13 and dnspython 2.9, `>=3.11`, broke every deploy 2026-10-30/31).
-  CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
-  It happened again on 2026-11-15: Dependabot PR #321 bumped both back to 13.0.0 / 2.9.0, CI
-  was green, and every deploy after it failed at the server's pip install (production kept the
-  old code). Since then the `server-python-check` job in `ci.yml` resolves `requirements.txt`
-  on Python 3.10 and gates `status-check`, so a Dependabot PR like that now shows red. dnspython
-  2.9.0 fixes CVE-2026-114605 (CPU use on crafted DNS replies, Debian rates it minor); we stay on
-  2.8.0 because `services/domain_verification.py` only does TXT lookups through the system
-  resolver. The real fix is moving the server venv to Python 3.11+, then raising both pins and
-  that job's `python-version`. `.github/dependabot.yml` (added 2026-11-20) ignores Pillow >=13
-  and dnspython >=2.9 so Dependabot stops reopening these bumps; its `open-pull-requests-limit: 0`
-  keeps routine version updates off. Remove those ignores when the server moves to 3.11+.
-  **Moving the server to 3.11: `.github/workflows/server-python.yml`** (manual; modes `inspect`,
+  Pins raised to Pillow 13.0.0 / dnspython 2.9.2 on 2026-11-25 (PR #336), and
+  `.github/dependabot.yml` (whose ignores held them back) was removed.
+  **The 3.11 venv switch (`.github/workflows/server-python.yml`)** (manual; modes `inspect`,
   `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
   `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
   `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
