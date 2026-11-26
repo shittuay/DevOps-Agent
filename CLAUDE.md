@@ -2298,6 +2298,65 @@ credential-returning read appears. Guard: `tests/test_api_read_secret_values.py`
 Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
 `api/v1` and `/v1/agent`; `POST /api/push/devices` moves a known APNs token to any signed-in
 account; the Kimi rate-limit retry in `core.py` bypasses `kimi_create_with_fallback`.
+2026-11-18 scheduled review: **the generic read tools don't return secrets.** `aws_api_read`
+refuses credential-returning operations (`_aws_read_discloses_secret`: secret values, instance
+passwords, ECR/STS tokens, `*credentials*`, SSM with `WithDecryption`), `azure_api_read` refuses
+`list_keys` / `list_*credentials` / publishing / app settings / connection strings / SAS
+(merged into `_is_azure_secret_read` on 2026-11-25), and `k8s_api_read` replaces Secret `data`/`string_data` values
+and the last-applied annotation with `[REDACTED]` (`_without_secret_data`). They are low risk with
+no confirmation, so they had bypassed the high-risk gate on `list_storage_account_keys` and the
+deliberate absence of an AWS secret-value tool. A failed login now shows the same message for a
+known and an unknown account (the attempts-remaining count gave known ones away); the lock message
+after five failures still does. Duplicates left by three parallel reviews merging the same fix
+were removed (`AI_ENDPOINTS`, `query_bigquery` in `safety.py`). Guard:
+`tests/test_review_2026_11_18.py`.
+
+Still open: sandbox mode is ignored on `api/v1` and `/v1/agent`; `POST /api/push/devices` moves a
+known APNs token to any signed-in account; signup says "Email already registered"; an org's only
+owner can demote or remove themselves, leaving no owner.
+2026-11-19 scheduled review: **the generic read escape hatches no longer hand out secrets
+unconfirmed.** `aws_api_read('secretsmanager','get_secret_value')`, `ssm get_parameter(s)` (SecureString
+plaintext), STS/SSO/ECR/Redshift credential calls, `azure_api_read` on a `*key*`/`*credential*`/`*sas*`
+operation (`storage_accounts.list_keys`, AKS admin kubeconfig) and `k8s_api_read` on a `*secret*` method
+all ran as low risk, while the dedicated tools for the same values are high risk.
+`secret_detector.escape_hatch_secret_read()` names those calls; `safety.validate_tool_call` makes them
+high risk, and `discloses_secret()` (used by `approval_service.stored_result` and
+`core._stored_change_result`, which now take `tool_input`) keeps their approved result as a one-time
+download, never stored. GCP needs nothing: Secret Manager's `access` is not a read method, so
+`gcp_api_read` already refuses it. Add an operation to `_AWS_SECRET_READS` when a new credential-returning
+read turns up. Guard: `tests/test_api_read_secret_gate.py`.
+
+2026-11-25 scheduled review: the 11-16, 11-18 and 11-19 fixes above were written in parallel
+and merged together on 11-22, which left **two refusal checks per tool** and turned main's CI
+red (the 11-18 AWS check ran first and returned no `error_code`, which the 11-16 tests require).
+Now each hatch has one refusal path, always `error_code: SecretDisclosureRefused`: AWS
+`_secret_read_refusal()` (parameter flags first, then the explicit list, then
+`_aws_read_discloses_secret`'s name markers), Azure `_is_azure_secret_read()`, Kubernetes
+`_is_k8s_secret_read()`. The safety gate (`escape_hatch_secret_read`) now flags SSM parameter
+reads only with `WithDecryption`, as the tool does: a plain `get_parameter` on
+`/aws/service/ami-*` (AMI lookup) had needed approval and had its result hidden as a download.
+The gate still fires for calls the tools refuse anyway (the user approves, then gets a
+refusal); pick one policy (refuse, or gate and allow) in a reviewed change.
+
+Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
+`api/v1` and `/v1/agent`. Checked 2026-11-19 and no longer open: the map's `esc()` escapes quotes,
+`query_bigquery` is classified (11-14), MCP PKCE (11-12), Settings > Learning XSS (11-11).
+2026-11-16 scheduled review: **the read escape hatches refuse secret-returning calls.**
+`aws_api_read` / `azure_api_read` / `k8s_api_read` run with no confirmation, and they would
+return Secrets Manager values, decrypted SSM parameters, STS/ECR/Redshift credentials, Windows
+passwords, Azure storage keys, AKS admin kubeconfigs, app settings and connection strings, and
+Kubernetes Secrets. Now refused before any client is built (`error_code:
+SecretDisclosureRefused`): AWS via `_SECRET_READ_OPERATIONS` plus `_SECRET_READ_FLAGS` (metadata
+allowed without `WithDecryption`/`includeValue(s)`, Glue only with `HidePassword`), Azure by
+method-name words (`_is_azure_secret_read`), Kubernetes by `secret` in the method or
+`plural=secrets`. The write hatches reject read-shaped names, so there is no unconfirmed way
+round. `gcp_api_read` was checked: Secret Manager's `access` isn't a read prefix, so it already
+goes through `gcp_api_write` and confirmation. Guard: `tests/test_api_read_secret_refusal.py`.
+
+Still open (not fixed): login messages reveal which accounts exist; sandbox mode is ignored on
+`api/v1` and `/v1/agent`; `POST /api/push/devices` moves a known APNs token to any signed-in
+account. (`query_bigquery` was fixed 2026-11-14; the map's `esc()` now escapes quotes and is not
+used inside inline handlers.)
 
 2026-11-11 scheduled review: **Settings > Learning escapes the session summary** (summary,
 topics, key lessons, domain labels went into `innerHTML` raw; the summary is Haiku output from a
@@ -2544,9 +2603,35 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (all in `MANAGED_SECRET_KEYS`); without them sending is a
   no-op. APNs is HTTP/2-only, hence `h2`/`hpack`/`hyperframe` pins. Guard:
   `tests/test_push_notifications.py`.
+- **The production server venv runs Python 3.11** (since 2026-11-20, via
+  `.github/workflows/server-python.yml`; it was the OS's 3.10 before). Pillow 13 and dnspython
+  2.9, both `>=3.11`, broke every deploy on 2026-10-30 and again on 2026-11-15 (Dependabot PR
+  #321) while CI, which tests on 3.11, was green. The `server-python-check` job in `ci.yml`
+  resolves `requirements.txt` on the server's Python and gates `status-check`: **keep its
+  `python-version` equal to the server venv**, and check `requires_python` on PyPI before adding
+  or bumping a pin.
 - **The production server runs Python 3.10** (inferred: Pillow 12.3 and dnspython 2.8, both
   `>=3.10`, install; Pillow 13 and dnspython 2.9, `>=3.11`, broke every deploy 2026-10-30/31).
   CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
+  It happened again on 2026-11-15: Dependabot PR #321 bumped both back to 13.0.0 / 2.9.0, CI
+  was green, and every deploy after it failed at the server's pip install (production kept the
+  old code). Since then the `server-python-check` job in `ci.yml` resolves `requirements.txt`
+  on Python 3.10 and gates `status-check`, so a Dependabot PR like that now shows red. dnspython
+  2.9.0 fixes CVE-2026-114605 (CPU use on crafted DNS replies, Debian rates it minor); we stay on
+  2.8.0 because `services/domain_verification.py` only does TXT lookups through the system
+  resolver. The real fix is moving the server venv to Python 3.11+, then raising both pins and
+  that job's `python-version`. `.github/dependabot.yml` (added 2026-11-20) ignores Pillow >=13
+  and dnspython >=2.9 so Dependabot stops reopening these bumps; its `open-pull-requests-limit: 0`
+  keeps routine version updates off. Remove those ignores when the server moves to 3.11+.
+  **Moving the server to 3.11: `.github/workflows/server-python.yml`** (manual; modes `inspect`,
+  `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
+  `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
+  `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
+  `/health` fails. The systemd unit and deploy job keep using `.../venv`. `rollback` points the
+  symlink back at `venv-py310`. It shares the `deploy-production` concurrency group with the deploy.
+  The server disk is small (1.5 GB free on 2026-11-20), so `upgrade` clears the pip and apt
+  caches, installs with `--no-cache-dir`, and refuses to start unless free space is at least the
+  old venv plus 700 MB; `inspect` prints the venv, cache and journal sizes.
 
 Step 2 (2026-11-01): the app itself lives in **`mobile/`** (Capacitor 8.5.3, plugins pinned
 exactly, bundle id `io.devopsagent.app`, iPhone only). It loads `https://devopsagent.io/` (`server.url`, with `www/offline.html` as `errorPath`);

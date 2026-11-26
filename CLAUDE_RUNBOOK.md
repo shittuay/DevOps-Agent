@@ -9,6 +9,7 @@ This document archives fixed issues and their solutions for reference. Most issu
 | Issue | Solution |
 |-------|----------|
 | 2026-11-17 (scheduled review): the generic read escape hatches, which run with no confirmation prompt, returned secret plaintext into chat and the model provider: `aws_api_read('secretsmanager','get_secret_value')` (and SSM `WithDecryption`, `ec2.get_password_data`, STS/ECR/Redshift credential calls), Azure `storage_accounts.list_keys` / SAS / credential lists (the dedicated `list_storage_account_keys` is high-risk), and `k8s_api_read('core','read_namespaced_secret')` / `list_*_secret`. The 2026-10-22 IAM deny covers only role-ARN accounts created from our CloudFormation template; access-key accounts, Azure and Kubernetes were open. | `aws_api_read` refuses `_SECRET_READ_OPERATIONS` and SSM reads with `WithDecryption`; `azure_api_read` refuses `_AZURE_SECRET_READ_METHODS`; `k8s_api_read` replaces each Secret value with `[REDACTED]` (names, keys and metadata kept). GCP's `versions.access` was already refused by `gcp_api_read`. Guard: `tests/test_api_read_secret_values.py`. |
+| 2026-11-18 (daily review): the provider escape hatches `aws_api_read`, `azure_api_read` and `k8s_api_read` are low risk (no confirmation) and accepted any read-prefixed operation, so `aws_api_read('secretsmanager','get_secret_value')`, `ssm get_parameter` with `WithDecryption`, `ec2 get_password_data`, `ecr get_authorization_token`, `sts get_session_token`, `azure_api_read('storage','storage_accounts.list_keys')` and `k8s_api_read('core','read_namespaced_secret')` put live secrets into the chat, tool trace and model provider with no prompt, while the dedicated tools for the same data are high risk. Also: the login page said "N attempts remaining" only for real accounts, and three parallel reviews had each added the same `AI_ENDPOINTS` / `query_bigquery` line. | AWS and Azure reads refuse those operations by name (`_aws_read_discloses_secret`, `_azure_read_discloses_secret`); Kubernetes Secret reads come back with values `[REDACTED]` (names and key names kept, plus the `last-applied-configuration` annotation, which holds the values too). Failed logins all say "Invalid email/username or password". Duplicates removed. GCP's hatch already excludes Secret Manager's `access`. Guard: `tests/test_review_2026_11_18.py`. |
 | 2026-11-12 (daily review): MCP OAuth issued an auth code with no `code_challenge`, and `/mcp/oauth/token` checked the verifier only when a challenge was stored. A code obtained without PKCE (for example by a local app listening on a registered loopback redirect) could be exchanged by anyone holding it with any non-empty `code_verifier`; the built-in client's secret is published, so it was no protection either. `/token` also ignored a mismatched `redirect_uri`. | `/authorize` returns 400 unless `code_challenge_method=S256` and the challenge is 43 base64url chars, for every client; `/token` refuses a code stored without a challenge and a `redirect_uri` that differs from the stored one (`routes/mcp.py`). Claude.ai, Desktop and Code always send S256, so the connector flow is unchanged. Guard: `tests/test_mcp_oauth_pkce_required.py`. |
 | 2026-11-02 (iPhone app, first run): the 2FA code page ran off the right edge of the screen, cutting off the title, the "Signing in as" line and the code box. On iOS (WebKit) the centred `.container` (a flex item of `body`) took the code box's intrinsic width, which is wide because of the monospace font and letter spacing; Chromium at the same width fits, so desktop checks never showed it. | `min-width: 0` on `.container` and on `input`, plus `overflow-wrap: anywhere` on the heading and subtitle under 480px (`templates/verify_2fa.html`). Guard: `tests/test_2fa_page_phone_width.py`. Not reproduced in a WebKit engine here (only Chromium is installed); confirm on the simulator. |
 | 2026-10-22 (review): the guardrail deny and the self-grant sensitivity list both missed `secretsmanager:BatchGetSecretValue`, `ec2:GetPasswordData` and the Redshift credential calls; at Manage, `aws_api_read('secretsmanager', 'batch_get_secret_value')` returned plaintext secrets with no approval. PR #265 tried to fix part of this by making the template deny equal the whole sensitivity list, which also denied `s3:GetObject`/`lambda:GetFunction` on Manage; it was closed. | `aws_permissions.CREDENTIAL_VALUE_ACTIONS` is the single list; `build_cf_template.py` imports it for `NeverSecretValues` (every level); `SENSITIVE_ACTIONS` adds the data reads for self-grant only. Guard: `test_credential_reads_are_denied_on_every_level_but_manage_keeps_data_reads`. **Re-upload `cloudformation/devops-agent-role.json` to S3 after merging.** |
@@ -4236,6 +4237,16 @@ Reviewed everything merged 2026-10-29 to 2026-11-02 (mostly the iPhone app groun
   reading `TIER_DEFINITIONS`; `/api/account/delete`'s password check doesn't count towards the
   login lockout (it is rate-limited to 5/hour and needs a signed-in session).
 
+## 2026-11-15: Every deploy failed after a Dependabot bump (Pillow 13 / dnspython 2.9)
+
+Dependabot PR #321 bumped `Pillow` 12.3.0 -> 13.0.0 and `dnspython` 2.8.0 -> 2.9.0, the same
+pair reverted on 2026-10-31. Both need Python >=3.11; the server's venv is older (3.10 as far as
+we can tell). CI runs on 3.11, so every check passed; the deploy job then failed at
+`pip install -r requirements.txt` with `No matching distribution found for Pillow==13.0.0` on all
+three attempts, and the service kept running the previous code. Merges #318-#325 (including the
+accessibility fixes) were not live until the pins went back. Fix: pins reverted and a
+`server-python-check` CI job that resolves the requirements on Python 3.10 and blocks
+`status-check`. dnspython 2.9.0's advisory (CVE-2026-114605) is accepted for now; see CLAUDE.md.
 
 ### 2026-11-15 scheduled review: organization invitations never worked
 
@@ -4263,3 +4274,19 @@ Reviewed everything merged 2026-10-29 to 2026-11-02 (mostly the iPhone app groun
   into the app, so nobody is locked out. Email-code MFA setup still verifies (it does prove it).
 - Guard: `tests/test_org_invitations.py`. The old `OrganizationMember.invitation_token` column
   is left in place, unused.
+
+## 2026-11-16 scheduled review: read escape hatches disclosed secrets without confirmation
+
+- **Symptom (latent, found by review):** `aws_api_read`, `azure_api_read` and `k8s_api_read` are
+  low risk (no confirmation) and only checked that the method name looked like a read.
+  `get_secret_value`, `get_parameter` with `WithDecryption`, `sts.get_session_token`,
+  `ecr.get_authorization_token`, `ec2.get_password_data`, Azure `list_keys` /
+  `list_cluster_admin_credentials` / `list_application_settings`, and Kubernetes
+  `read_namespaced_secret` all passed. The dedicated tools for the same data
+  (`list_storage_account_keys`, `get_secret_value`, ...) are high risk for exactly this reason.
+- **Fix:** each hatch refuses those calls before building a client, with
+  `error_code: SecretDisclosureRefused`. The write hatches already reject read-shaped names, so
+  the refusal can't be routed round. `secret_detector` redaction was not enough on its own: it
+  only matches known secret formats, and a database password or app setting has none.
+- Guard: `tests/test_api_read_secret_refusal.py`. Running tests was not permitted in the
+  routine's sandbox, so CI is its first run.
