@@ -2590,6 +2590,13 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (all in `MANAGED_SECRET_KEYS`); without them sending is a
   no-op. APNs is HTTP/2-only, hence `h2`/`hpack`/`hyperframe` pins. Guard:
   `tests/test_push_notifications.py`.
+- **The production server venv runs Python 3.11** (since 2026-11-20, via
+  `.github/workflows/server-python.yml`; it was the OS's 3.10 before). Pillow 13 and dnspython
+  2.9, both `>=3.11`, broke every deploy on 2026-10-30 and again on 2026-11-15 (Dependabot PR
+  #321) while CI, which tests on 3.11, was green. The `server-python-check` job in `ci.yml`
+  resolves `requirements.txt` on the server's Python and gates `status-check`: **keep its
+  `python-version` equal to the server venv**, and check `requires_python` on PyPI before adding
+  or bumping a pin.
 - **The production server runs Python 3.10** (inferred: Pillow 12.3 and dnspython 2.8, both
   `>=3.10`, install; Pillow 13 and dnspython 2.9, `>=3.11`, broke every deploy 2026-10-30/31).
   CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
