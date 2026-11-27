@@ -25,8 +25,15 @@ def test_aws_api_read_refuses_secret_reads(op, params):
     with patch.object(aws_tools, '_get_boto_client') as client:
         result = aws_tools.aws_api_read('x', op, params)
     assert result['success'] is False
+    assert result['error_code'] == 'SecretDisclosureRefused'
     assert 'secret' in result['error']
     client.assert_not_called()
+
+
+def test_one_refusal_check_per_read_hatch():
+    # Three reviews each added their own copy of this check (2026-11-16/18/19); keep one.
+    assert not hasattr(aws_tools, '_aws_read_discloses_secret')
+    assert not hasattr(azure_tools, '_azure_read_discloses_secret')
 
 
 @pytest.mark.parametrize('op,params', [
@@ -37,7 +44,7 @@ def test_aws_api_read_refuses_secret_reads(op, params):
     ('describe_instances', {}),
 ])
 def test_aws_api_read_still_allows_metadata(op, params):
-    assert not aws_tools._aws_read_discloses_secret(op, params)
+    assert aws_tools._secret_read_refusal('x', op, params) is None
 
 
 @pytest.mark.parametrize('op', [

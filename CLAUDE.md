@@ -2313,6 +2313,15 @@ download, never stored. GCP needs nothing: Secret Manager's `access` is not a re
 `gcp_api_read` already refuses it. Add an operation to `_AWS_SECRET_READS` when a new credential-returning
 read turns up. Guard: `tests/test_api_read_secret_gate.py`.
 
+2026-11-24 scheduled review: the 11-16, 11-18 and 11-19 reviews each added their own secret check
+to the read hatches. `aws_api_read` now has one, `_secret_read_refusal()` (table + flags + name
+markers), and `azure_api_read` one, `_is_azure_secret_read()`; every refusal carries `error_code:
+SecretDisclosureRefused`. **Open design conflict, owner to decide:** the tools refuse these calls,
+but `safety.py` (via `escape_hatch_secret_read`) still marks them high risk first, so the user is
+asked to approve a call that is then refused, and `ssm get_parameters_by_path` without
+`WithDecryption` (metadata only) also asks for approval. `k8s_api_read`'s `_without_secret_data`
+is unreachable for the same reason. Pick refuse (drop the escalation) or approve-and-download
+(drop the refusals).
 2026-11-25 scheduled review: the 11-16, 11-18 and 11-19 fixes above were written in parallel
 and merged together on 11-22, which left **two refusal checks per tool** and turned main's CI
 red (the 11-18 AWS check ran first and returned no `error_code`, which the 11-16 tests require).

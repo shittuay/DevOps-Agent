@@ -13281,10 +13281,23 @@ _SECRET_READ_FLAGS = {
 
 
 def _secret_read_refusal(service: str, op_lower: str, params: Dict[str, Any]) -> Optional[str]:
-    """Return a refusal message when an aws_api_read call would disclose a secret."""
+    """Return a refusal message when an aws_api_read call would disclose a secret.
+
+    The one check for aws_api_read: the exact table, the per-parameter flags, and the
+    name markers that catch credential-returning operations the table doesn't list.
+    """
     svc = (service or '').strip().lower()
+    op_lower = (op_lower or '').strip().lower()
+    params = params or {}
     key = (svc, op_lower)
+    if key in _SECRET_READ_OPERATIONS or any(m in op_lower for m in _AWS_SECRET_READ_MARKERS):
+        return (f'{svc}.{op_lower} returns a secret value or credentials, so it is not '
+                'available through aws_api_read. Ask the user to read it in the AWS '
+                'console; do not try another tool to fetch it.')
     flag = _SECRET_READ_FLAGS.get(key)
+    if flag is None and op_lower.startswith('get_parameter'):
+        # Whatever the service string says, WithDecryption asks for SecureString plaintext.
+        flag = ('WithDecryption', True)
     if flag:
         name, disclosing_value = flag
         value = bool(params.get(name, False))
