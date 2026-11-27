@@ -2611,6 +2611,9 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   Pins raised to Pillow 13.0.0 / dnspython 2.9.2 on 2026-11-25 (PR #336), and
   `.github/dependabot.yml` (whose ignores held them back) was removed.
   **The 3.11 venv switch (`.github/workflows/server-python.yml`)** (manual; modes `inspect`,
+  Pillow is now 13.0.0 and dnspython 2.9.2 (#336, 2026-11-25); `.github/dependabot.yml` and
+  its ignores for those two were deleted in the same change.
+  **`.github/workflows/server-python.yml`** (manual; modes `inspect`,
   `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
   `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
   `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
