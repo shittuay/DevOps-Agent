@@ -2597,20 +2597,9 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   resolves `requirements.txt` on the server's Python and gates `status-check`: **keep its
   `python-version` equal to the server venv**, and check `requires_python` on PyPI before adding
   or bumping a pin.
-- **The production server runs Python 3.10** (inferred: Pillow 12.3 and dnspython 2.8, both
-  `>=3.10`, install; Pillow 13 and dnspython 2.9, `>=3.11`, broke every deploy 2026-10-30/31).
-  CI tests on 3.11, so **check `requires_python` on PyPI before adding or bumping a pin.**
-  It happened again on 2026-11-15: Dependabot PR #321 bumped both back to 13.0.0 / 2.9.0, CI
-  was green, and every deploy after it failed at the server's pip install (production kept the
-  old code). Since then the `server-python-check` job in `ci.yml` resolves `requirements.txt`
-  on Python 3.10 and gates `status-check`, so a Dependabot PR like that now shows red. dnspython
-  2.9.0 fixes CVE-2026-114605 (CPU use on crafted DNS replies, Debian rates it minor); we stay on
-  2.8.0 because `services/domain_verification.py` only does TXT lookups through the system
-  resolver. The real fix is moving the server venv to Python 3.11+, then raising both pins and
-  that job's `python-version`. `.github/dependabot.yml` (added 2026-11-20) ignores Pillow >=13
-  and dnspython >=2.9 so Dependabot stops reopening these bumps; its `open-pull-requests-limit: 0`
-  keeps routine version updates off. Remove those ignores when the server moves to 3.11+.
-  **Moving the server to 3.11: `.github/workflows/server-python.yml`** (manual; modes `inspect`,
+  Pillow is now 13.0.0 and dnspython 2.9.2 (#336, 2026-11-25); `.github/dependabot.yml` and
+  its ignores for those two were deleted in the same change.
+  **`.github/workflows/server-python.yml`** (manual; modes `inspect`,
   `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
   `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
   `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
