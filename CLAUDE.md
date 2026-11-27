@@ -2601,8 +2601,9 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (all in `MANAGED_SECRET_KEYS`); without them sending is a
   no-op. APNs is HTTP/2-only, hence `h2`/`hpack`/`hyperframe` pins. Guard:
   `tests/test_push_notifications.py`.
-- **The production server venv runs Python 3.11** (since 2026-11-20, via
-  `.github/workflows/server-python.yml`; it was the OS's 3.10 before). Pillow 13 and dnspython
+- **The production server venv still runs Python 3.10.12** (Ubuntu 22.04's system Python;
+  `server-python.yml inspect`, 2026-11-27). The 3.11 upgrade has never run: the only runs were
+  `inspect`. An earlier version of this note said 3.11 "since 2026-11-20"; that was wrong. Pillow 13 and dnspython
   2.9, both `>=3.11`, broke every deploy on 2026-10-30 and again on 2026-11-15 (Dependabot PR
   #321) while CI, which tests on 3.11, was green. The `server-python-check` job in `ci.yml`
   resolves `requirements.txt` on the server's Python and gates `status-check`: **keep its
@@ -2613,13 +2614,21 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   **The 3.11 venv switch (`.github/workflows/server-python.yml`)** (manual; modes `inspect`,
   Pillow is now 13.0.0 and dnspython 2.9.2 (#336, 2026-11-25); `.github/dependabot.yml` and
   its ignores for those two were deleted in the same change.
+  #336 (2026-11-25) raised Pillow to 13.0.0 and dnspython to 2.9.2 and moved the check to 3.11
+  before the server was upgraded, so every deploy failed again until they were pinned back to
+  12.3.0 / 2.8.0 and the check returned to 3.10 (2026-11-27). **Raise those pins and the check's
+  `python-version` only in a PR merged after `upgrade` has succeeded** (its log ends `Now running:
+  Python 3.11`). Dependabot has no ignore file any more, so it will propose them again: leave those
+  PRs closed until then; the 3.10 check shows them red.
   **`.github/workflows/server-python.yml`** (manual; modes `inspect`,
   `upgrade`, `rollback`). `upgrade` installs python3.11 (deadsnakes if the OS lacks it), builds
   `venv-py311` from `requirements.txt`, renames the old venv to `venv-py310`, makes
   `/var/www/devops-agent/venv` a symlink to the new one, restarts, and switches back by itself if
   `/health` fails. The systemd unit and deploy job keep using `.../venv`. `rollback` points the
   symlink back at `venv-py310`. It shares the `deploy-production` concurrency group with the deploy.
-  The server disk is small (1.5 GB free on 2026-11-20), so `upgrade` clears the pip and apt
+  The server disk is small (1.4 GB free on 2026-11-27, old venv 1.4 GB, pip cache 202 MB,
+  journal 504 MB), so `upgrade` would refuse as things stand; free space or grow the EBS volume
+  first. `upgrade` clears the pip and apt
   caches, installs with `--no-cache-dir`, and refuses to start unless free space is at least the
   old venv plus 700 MB; `inspect` prints the venv, cache and journal sizes.
 
