@@ -242,6 +242,20 @@ def list_changes():
     })
 
 
+def _claim(change: InfrastructureChange, from_status: str, to_status: str) -> bool:
+    """Move a change between statuses in one conditional UPDATE.
+
+    Only one of two concurrent requests (a double click, two reviewers) can
+    win, so an approved change runs once and an executed one rolls back once.
+    """
+    won = (InfrastructureChange.query
+           .filter_by(id=change.id, status=from_status)
+           .update({'status': to_status}, synchronize_session=False))
+    db.session.commit()
+    db.session.refresh(change)
+    return bool(won)
+
+
 @changes_bp.route('/<int:change_id>', methods=['GET'])
 @login_required
 def get_change(change_id):
@@ -352,7 +366,7 @@ def execute_change(change_id):
         # approving it: plain org members can't run a teammate's change.
         return jsonify({'error': 'Unauthorized'}), 403
 
-    if change.status != 'approved':
+    if change.status != 'approved' or not _claim(change, 'approved', 'executing'):
         return jsonify({'error': f'Change must be approved before execution (current: {change.status})'}), 400
 
     try:
@@ -366,6 +380,8 @@ def execute_change(change_id):
         result = _execute_change(change)
 
         if result.get('status') == 'no_action':
+            change.status = 'approved'
+            db.session.commit()
             return jsonify({
                 'success': False,
                 'error': result.get('reason', 'Unsupported action/resource type — no action was taken'),
@@ -443,6 +459,9 @@ def rollback_change(change_id):
     if not change.rollback_data:
         return jsonify({'error': 'No rollback data available'}), 400
 
+    if not _claim(change, 'executed', 'rolled_back'):
+        return jsonify({'error': 'Only executed changes can be rolled back'}), 400
+
     try:
         result = _execute_rollback(change)
 
@@ -476,7 +495,11 @@ def rollback_change(change_id):
         })
 
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        db.session.rollback()
+        change.status = 'executed'
+        db.session.commit()
+        logger.error(f"Rollback of change #{change.id} failed: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Rollback failed. Check the resource in your cloud console before trying again.'}), 500
 
 
 def _purge_resource_from_sync(change: InfrastructureChange) -> None:
