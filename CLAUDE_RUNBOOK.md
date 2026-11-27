@@ -4289,3 +4289,15 @@ accessibility fixes) were not live until the pins went back. Fix: pins reverted 
   only matches known secret formats, and a database password or app setting has none.
 - Guard: `tests/test_api_read_secret_refusal.py`. Running tests was not permitted in the
   routine's sandbox, so CI is its first run.
+
+## 2026-11-27: Deploys failed again after #336 raised Pillow / dnspython
+
+#336 raised `Pillow==13.0.0` and `dnspython==2.9.2` (both need Python >=3.11) and moved the
+`server-python-check` CI job to 3.11. Its own description said not to merge until the server venv
+was on 3.11, but `server-python.yml` had only ever run in `inspect` mode (2026-11-21: system and venv
+Python 3.10.12, python3.11 not installed). Every deploy from 2026-11-25 failed three times at
+`pip install` with `No matching distribution found for Pillow==13.0.0`; the service was never
+restarted. Fix: pins back to 12.3.0 / 2.8.0 and the check back to 3.10. Lesson: a check that must
+equal the server's Python is only a guard if it is moved *after* the server, never in the same PR
+as the bump. The upgrade itself is blocked on disk space (1.4 GB free; it needs the 1.4 GB old venv
+plus 700 MB).
