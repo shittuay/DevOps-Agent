@@ -4301,3 +4301,33 @@ restarted. Fix: pins back to 12.3.0 / 2.8.0 and the check back to 3.10. Lesson: 
 equal the server's Python is only a guard if it is moved *after* the server, never in the same PR
 as the bump. The upgrade itself is blocked on disk space (1.4 GB free; it needs the 1.4 GB old venv
 plus 700 MB).
+
+## 2026-11-28 scheduled review: organization could be left with no owner
+
+`POST /organizations/<id>/members/<uid>/role` and `/remove` checked that only an owner can change
+or remove an owner, but not that one would remain. The sole owner could demote themselves to
+`member` or remove themselves, after which nobody could grant owner access, change an owner, or
+reach owner-only settings. `MultiTenancyService.is_last_owner()` now refuses both in the service
+(so any caller is covered) and the routes flash "An organization needs at least one owner".
+Transfer first: make another member owner, then step down. Guard: `tests/test_org_last_owner.py`.
+
+## 2026-11-28: signup revealed which emails have accounts; push tokens could move from any client
+
+**Signup.** The form answered "Email already registered", so anyone could test addresses (5 per
+hour per IP). It now shows one "Check your email" page either way. That needed a flow change: a
+new account used to be signed in straight away, which itself told the two cases apart (a session
+cookie). Now the account is created, the verification email goes out, and the user signs in after
+clicking it. The verification link deliberately does not sign anyone in: someone could pre-register
+an account under a victim's email, and an auto-login link would hand the victim an account whose
+password the attacker knows. The real owner of a taken address gets "You already have an account"
+(at most hourly). `test_signup_no_enumeration.py` compares the two responses byte for byte (minus
+the typed address).
+
+**Push tokens.** `POST /api/push/devices` accepted any signed-in caller, so a token copied off a
+phone could be moved to another account, sending that account's approval alerts to the phone and
+stopping its own. It now requires the iPhone app's user-agent marker and logs every move. The
+marker can be faked; App Attest would make this a real proof that the request came from the app.
+
+Not fixed: the app sends its token once per stored value (`native_app.js`), so if a session
+expires and a different person signs in without tapping Log out, the token stays on the first
+account until the app is reinstalled or the token changes.

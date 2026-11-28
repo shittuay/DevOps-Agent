@@ -143,12 +143,55 @@ def test_filing_a_request_pushes_to_the_person_who_must_confirm(app, db_session,
     db.session.commit()
 
 
+APP_UA = {'User-Agent': 'Mozilla/5.0 (iPhone) DevOpsAgentiOS/1.0'}
+
+
 def _login(app, user):
     c = app.test_client()
+    c.environ_base['HTTP_USER_AGENT'] = APP_UA['User-Agent']
     g.pop('_login_user', None)
     assert c.post('/login', data={'email': user.email, 'password': PASSWORD}).status_code == 302
     g.pop('_login_user', None)
     return c
+
+
+def test_register_is_refused_outside_the_app(app, db_session):
+    """A copied token can't be moved to another account from a script or browser."""
+    from models import PushDevice, User, db
+    tag = uuid.uuid4().hex[:8]
+    a = _user(db, User, tag)
+    try:
+        c = _login(app, a)
+        c.environ_base['HTTP_USER_AGENT'] = 'curl/8.0'
+        assert c.post('/api/push/devices', json={'token': TOKEN}).status_code == 403
+        assert PushDevice.query.filter_by(token=TOKEN).count() == 0
+    finally:
+        g.pop('_login_user', None)
+        PushDevice.query.filter_by(token=TOKEN).delete()
+        db.session.delete(a)
+        db.session.commit()
+
+
+def test_a_token_moving_between_accounts_is_logged(app, db_session):
+    from unittest.mock import patch
+    from models import PushDevice, User, db
+    tag = uuid.uuid4().hex[:8]
+    a, b = _user(db, User, tag), _user(db, User, tag + 'b')
+    try:
+        ca = _login(app, a)
+        assert ca.post('/api/push/devices', json={'token': TOKEN}).status_code == 200
+        g.pop('_login_user', None)
+        cb = _login(app, b)
+        with patch('routes.push.security_logger') as log:
+            assert cb.post('/api/push/devices', json={'token': TOKEN}).status_code == 200
+        msg = log.warning.call_args[0][0]
+        assert 'Push token moved' in msg and f'user {a.id}' in msg and TOKEN not in msg
+    finally:
+        g.pop('_login_user', None)
+        PushDevice.query.filter_by(token=TOKEN).delete()
+        db.session.delete(a)
+        db.session.delete(b)
+        db.session.commit()
 
 
 def test_register_moves_a_token_to_whoever_signed_in_last(app, db_session):

@@ -227,21 +227,39 @@ class MultiTenancyService:
         logger.info(f"Added user {user_id} to org {org_id} as {role}")
         return member
 
+    def is_last_owner(self, org_id: int, user_id: int) -> bool:
+        """True if user_id is the organization's only active owner.
+
+        Demoting or removing that member would leave the organization with nobody able to
+        grant owner access, change another owner, or manage SSO.
+        """
+        OrganizationMember = self._get_member_model()
+        member = self.get_membership(org_id, user_id)
+        if not member or member.role != 'owner':
+            return False
+        owners = OrganizationMember.query.filter_by(
+            organization_id=org_id, role='owner', is_active=True).count()
+        return owners <= 1
+
     def update_member_role(self, org_id: int, user_id: int, new_role: str) -> Optional[Any]:
-        """Update a member's role."""
+        """Update a member's role. Refuses to demote the only owner (returns None)."""
         db = self._get_db()
         member = self.get_membership(org_id, user_id)
         if member:
+            if new_role != 'owner' and self.is_last_owner(org_id, user_id):
+                return None
             member.role = new_role
             db.session.commit()
             return member
         return None
 
     def remove_member(self, org_id: int, user_id: int) -> bool:
-        """Remove a member from an organization."""
+        """Remove a member from an organization. Refuses to remove the only owner."""
         db = self._get_db()
         member = self.get_membership(org_id, user_id)
         if member:
+            if self.is_last_owner(org_id, user_id):
+                return False
             member.is_active = False
             db.session.commit()
             logger.info(f"Removed user {user_id} from org {org_id}")

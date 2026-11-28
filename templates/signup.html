@@ -201,6 +201,19 @@
       border-color: rgba(239,68,68,.25);
     }
 
+    .alert-success {
+      background: rgba(34,197,94,.12);
+      color: var(--text);
+      border-color: rgba(34,197,94,.3);
+      line-height: 1.5;
+    }
+
+    .check-email-note {
+      font-size: 13px;
+      color: var(--text2);
+      line-height: 1.5;
+    }
+
     .login-link {
       text-align: center;
       margin-top: 28px;
@@ -300,6 +313,17 @@
       <p class="subtitle">Start automating your DevOps workflows</p>
     </div>
 
+    {% if check_email %}
+    <div class="alert alert-success" role="status">
+      <strong>Check your email.</strong> If <strong>{{ check_email }}</strong> can be used, we've sent it a link.
+      Click the link to finish setting up your account, then sign in.
+    </div>
+    <p class="check-email-note">No email after a few minutes? Check your spam folder. If you already have an
+      account with this address, we've emailed you about it instead.</p>
+    <div class="login-link">
+      <a href="/login">Go to sign in</a>
+    </div>
+    {% else %}
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
@@ -349,9 +373,11 @@
     <div class="login-link">
       Already have an account? <a href="/login">Sign in</a>
     </div>
+    {% endif %}
   </div>
 
   <script>
+    if (document.getElementById('signupForm')) {
     document.getElementById('password').addEventListener('input', function() {
       var val = this.value;
       var fill = document.getElementById('strength-fill');
@@ -381,6 +407,7 @@
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span> Creating account...';
     });
+    }
   </script>
 <script src="{{ url_for('static', filename='js/a11y.js') }}" defer></script>
 </body>
