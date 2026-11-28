@@ -2298,8 +2298,19 @@ after five failures still does. Duplicates left by three parallel reviews mergin
 were removed (`AI_ENDPOINTS`, `query_bigquery` in `safety.py`). Guard:
 `tests/test_review_2026_11_18.py`.
 
-Still open: sandbox mode is ignored on `api/v1` and `/v1/agent`; `POST /api/push/devices` moves a
-known APNs token to any signed-in account; signup says "Email already registered".
+Still open: sandbox mode is ignored on `api/v1` and `/v1/agent`.
+2026-11-28 (owner request) **signup no longer reveals which emails have accounts.** A valid form
+always shows the same "Check your email" page (`_render_check_email`). A new account is created
+but **not signed in**; the verification link finishes setup and the user signs in (the link never
+signs anyone in, or an account pre-registered under someone else's email could be handed to
+them). For a taken address the owner gets `send_existing_account_notice` (at most hourly,
+`User.signup_notice_sent_at`) and a bcrypt hash runs so timing matches. The username is checked
+first and a taken one is still reported (usernames are public). A plan picked before signup
+(`signup_tier_intent` in the session) opens Billing after the first sign-in. Guard:
+`tests/test_signup_no_enumeration.py`. Same day: **`POST /api/push/devices` accepts only the
+iPhone app** (`is_ios_app()`, else 403 `app_only`) and logs every token that moves between
+accounts. The app marker is the user agent and can be faked; App Attest is the full fix (not
+done). Guard: `tests/test_push_notifications.py`.
 2026-11-28 scheduled review: an organization's only owner can no longer demote or remove
 themselves (`MultiTenancyService.is_last_owner`, checked in the service and both member routes);
 make someone else owner first. Guard: `tests/test_org_last_owner.py`. Noted, not changed:
@@ -2587,7 +2598,7 @@ the app** (free companion to the paid web tool, guideline 3.1.3(f)). Step 1, the
   `tests/test_ios_app_mode.py`.
 - **Push notifications** (`services/push_service.py`, `routes/push.py`, model `PushDevice`):
   the app registers its APNs token with `POST /api/push/devices` (`DELETE` on sign-out; a token
-  moves to whoever signed in last). Filing an `ApprovalRequest` pushes to the requester
+  moves to whoever signed in last, and only requests from the app are accepted). Filing an `ApprovalRequest` pushes to the requester
   (self-confirm) or the eligible approvers, from `approval_service._notify_*`. The notification
   carries the tool name and risk level only, never arguments (it goes through Apple and shows
   on the lock screen); `approval_id` and `link` ride along for the app, category
