@@ -44,6 +44,7 @@ class User(UserMixin, db.Model):
     email_verified = db.Column(db.Boolean, default=False)
     email_verification_token = db.Column(db.String(100), nullable=True)
     email_verification_sent_at = db.Column(db.DateTime, nullable=True)
+    signup_notice_sent_at = db.Column(db.DateTime, nullable=True)  # 'someone tried to sign up' email, at most hourly
 
     # Password reset
     password_reset_token = db.Column(db.String(100), nullable=True)

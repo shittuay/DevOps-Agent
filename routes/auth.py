@@ -256,6 +256,9 @@ def login():
             next_page = request.args.get('next', '')
             if next_page and _is_safe_redirect(next_page):
                 return redirect(next_page)
+            tier = session.pop('signup_tier_intent', '')
+            if tier in _PAID_TIERS:
+                return redirect(f'/billing?upgrade={tier}')
             return redirect(url_for('chat'))
         else:
             user.record_failed_login()
@@ -268,6 +271,45 @@ def login():
             return render_template(_LOGIN_TEMPLATE, error='Invalid email/username or password')
 
     return render_template(_LOGIN_TEMPLATE)
+
+
+SIGNUP_NOTICE_INTERVAL = timedelta(hours=1)
+
+
+_PAID_TIERS = ('starter', 'professional', 'business')
+
+
+def _render_check_email(email: str, tier_intent: str = ''):
+    """The one page signup shows after a valid form, whether or not the email has an account.
+
+    A plan picked before signing up is kept in the session (set in both cases, since a Flask
+    session cookie is readable) and opens Billing after the first sign-in.
+    """
+    if tier_intent in _PAID_TIERS:
+        session['signup_tier_intent'] = tier_intent
+    return render_template('signup.html', check_email=email)
+
+
+def _notify_existing_account(user) -> None:
+    """Email the owner of an address someone tried to sign up with, at most once an hour."""
+    now = utcnow()
+    if user.signup_notice_sent_at and now - user.signup_notice_sent_at < SIGNUP_NOTICE_INTERVAL:
+        return
+    user.signup_notice_sent_at = now
+    db.session.commit()
+
+    def _send(app, user_id):
+        with app.app_context():
+            try:
+                from services.email_service import email_service
+                _user = User.query.get(user_id)
+                if _user:  # account email: sent even to users who opted out of marketing
+                    email_service.send_existing_account_notice(_user)
+            except Exception as e:
+                app.logger.warning(f"Existing-account notice failed for user {user_id}: {e}")
+
+    threading.Thread(target=_send, args=(current_app._get_current_object(), user.id),
+                     daemon=True).start()
 
 
 @auth_bp.route('/signup', methods=['GET', 'POST'])
@@ -314,13 +356,18 @@ def signup():
         if pw_error:
             return render_template('signup.html', error=pw_error)
 
-        if User.query.filter_by(email=email).first():
-            security_logger.warning(f"Signup attempt with existing email from {ip_address}: {email}")
-            return render_template('signup.html', error='Email already registered')
-
+        # Usernames are public handles, so a taken one is reported. It is checked before the
+        # email so the answer never depends on whether the email has an account.
         if User.query.filter_by(username=username).first():
             security_logger.warning(f"Signup attempt with existing username from {ip_address}: {username}")
             return render_template('signup.html', error='Username already taken')
+
+        existing = User.query.filter(func.lower(User.email) == email).first()
+        if existing:
+            security_logger.warning(f"Signup attempt with existing email from {ip_address}: {email}")
+            User().set_password(password)  # same bcrypt cost as a real signup
+            _notify_existing_account(existing)
+            return _render_check_email(email, tier_intent)
 
         try:
             verification_token = secrets.token_urlsafe(32)
@@ -387,18 +434,14 @@ def signup():
                 daemon=True,
             ).start()
 
-            login_user(user, remember=True)
-            user.update_last_login(ip_address=ip_address)
-
-            # If user signed up after clicking a pricing tier, send them straight to billing
-            _valid_tiers = ('starter', 'professional', 'business')
-            if tier_intent and tier_intent in _valid_tiers:
-                from flask import url_for as _url_for
-                return redirect(f'/billing?upgrade={tier_intent}')
-            return redirect(url_for('chat'))
+            # Not signed in yet: the page must look the same as for an address that already
+            # has an account. The verification link finishes setup, then the user signs in.
+            return _render_check_email(email, tier_intent)
         except Exception as e:
             db.session.rollback()
-            return render_template('signup.html', error=f'Error creating account: {str(e)}', tier_intent=tier_intent)
+            current_app.logger.error(f"Signup failed: {e}", exc_info=True)
+            return render_template('signup.html', error='Could not create the account. Please try again.',
+                                   tier_intent=tier_intent)
 
     return render_template('signup.html', tier_intent=tier_intent)
 

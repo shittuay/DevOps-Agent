@@ -59,7 +59,9 @@ class TestRegistration:
             'full_name': 'Another User'
         }, follow_redirects=True)
         assert response.status_code == 200
-        assert b'already registered' in response.data.lower() or b'already' in response.data.lower()
+        # Same page as a new signup, so the form can't tell anyone an account exists.
+        assert b'check your email' in response.data.lower()
+        assert b'already registered' not in response.data.lower()
 
     def test_registration_weak_password(self, client, app):
         """Test registration with weak password fails."""

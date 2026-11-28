@@ -213,6 +213,25 @@ class EmailService:
 
         return self.send_email(user.email, "Verify Your Email - DevOps Agent", html)
 
+    def send_existing_account_notice(self, user):
+        """Someone tried to sign up with an address that already has an account.
+
+        Signup shows the same "check your email" page either way, so this message is how the
+        real owner learns about it, without the page telling anyone the account exists.
+        """
+        html = self._wrap_html(f"""
+            <h2 style="color: #333; margin-bottom: 12px;">You already have an account</h2>
+            <p>Hi {user.username},</p>
+            <p>Someone (hopefully you) tried to create a new DevOps Agent account with this email address. You already have one, so no new account was created.</p>
+            <div style="text-align: center; margin: 24px 0;">
+                <a href="{self.base_url}/login" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    Sign in
+                </a>
+            </div>
+            <p style="font-size: 13px; color: #666;">Forgot your password? <a href="{self.base_url}/forgot-password">Reset it here</a>. If this wasn't you, you can ignore this email; your account has not changed.</p>
+        """)
+        return self.send_email(user.email, "You already have a DevOps Agent account", html)
+
     def send_password_reset_email(self, user, token):
         """Send password reset email with a tokenized link. Link expires in 1 hour."""
         link = f"{self.base_url}/reset-password?token={token}&user_id={user.id}"
