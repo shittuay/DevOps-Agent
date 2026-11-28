@@ -213,6 +213,11 @@ def update_member_role(org_id, user_id):
         flash('Only an organization owner can grant or change owner access.', 'error')
         return redirect(url_for('organizations.list_members', org_id=org_id))
 
+    if new_role != 'owner' and service.is_last_owner(org_id, user_id):
+        flash('An organization needs at least one owner. Make someone else an owner first.',
+              'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
     if service.update_member_role(org_id, user_id, new_role):
         flash('Member role updated!', 'success')
     else:
@@ -238,6 +243,11 @@ def remove_member(org_id, user_id):
     # update_member_role above already guards against for role changes.
     if target_membership and target_membership.role == 'owner' and not caller_is_owner:
         flash('Only an organization owner can remove another owner.', 'error')
+        return redirect(url_for('organizations.list_members', org_id=org_id))
+
+    if service.is_last_owner(org_id, user_id):
+        flash('An organization needs at least one owner. Make someone else an owner first.',
+              'error')
         return redirect(url_for('organizations.list_members', org_id=org_id))
 
     if service.remove_member(org_id, user_id):

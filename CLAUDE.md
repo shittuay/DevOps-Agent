@@ -2299,8 +2299,13 @@ were removed (`AI_ENDPOINTS`, `query_bigquery` in `safety.py`). Guard:
 `tests/test_review_2026_11_18.py`.
 
 Still open: sandbox mode is ignored on `api/v1` and `/v1/agent`; `POST /api/push/devices` moves a
-known APNs token to any signed-in account; signup says "Email already registered"; an org's only
-owner can demote or remove themselves, leaving no owner.
+known APNs token to any signed-in account; signup says "Email already registered".
+2026-11-28 scheduled review: an organization's only owner can no longer demote or remove
+themselves (`MultiTenancyService.is_last_owner`, checked in the service and both member routes);
+make someone else owner first. Guard: `tests/test_org_last_owner.py`. Noted, not changed:
+`.env.example`'s `POSTGRES_USER`/`POSTGRES_DB` (`de`, edited on main 2026-11-25) no longer match
+its own `DATABASE_URL` (`devops`/`devops_agent`), and `Organization.owner_id` is not updated when
+ownership moves.
 2026-11-19 scheduled review: **the generic read escape hatches no longer hand out secrets
 unconfirmed.** `aws_api_read('secretsmanager','get_secret_value')`, `ssm get_parameter(s)` (SecureString
 plaintext), STS/SSO/ECR/Redshift credential calls, `azure_api_read` on a `*key*`/`*credential*`/`*sas*`
